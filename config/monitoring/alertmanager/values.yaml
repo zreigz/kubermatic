@@ -1,6 +1,7 @@
 alertmanager:
   version: v0.16.0
-  host: ""
+  host: ''
+  tls_auth_host: ''
   config:
     global:
       slack_api_url: https://

@@ -17,7 +17,8 @@ spec:
         app: alertmanager-kubermatic
     spec:
       containers:
-      - args:
+      - name: alertmanager
+        args:
         - --config.file=/etc/alertmanager/config/alertmanager.yaml
         - --cluster.listen-address=$(POD_IP):6783
         - --storage.path=/alertmanager
@@ -44,7 +45,6 @@ spec:
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 3
-        name: alertmanager
         ports:
         - containerPort: 9093
           name: web
@@ -73,12 +73,12 @@ spec:
         - mountPath: /alertmanager
           name: alertmanager-kubermatic-db
           subPath: alertmanager-db
-      - args:
+      - name: config-reloader
+        args:
         - -webhook-url=http://localhost:9093/-/reload
         - -volume-dir=/etc/alertmanager/config
         image: quay.io/coreos/configmap-reload:v0.0.1
         imagePullPolicy: IfNotPresent
-        name: config-reloader
         resources:
           limits:
             cpu: 5m

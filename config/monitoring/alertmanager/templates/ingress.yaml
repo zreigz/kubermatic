@@ -1,0 +1,27 @@
+{{ if .Values.alertmanager.tls_auth_host }}
+{{ if .Values.kubermatic.isMaster }}
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    certmanager.k8s.io/cluster-issuer: "tls-auth-alertmanager-ca"
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/auth-tls-secret: "{{ .Release.Namespace }}/alertmanager-ca-secret"
+    nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+  name: tls-auth-alertmanager
+spec:
+  tls:
+  - hosts:
+    - {{ .Values.alertmanager.tls_auth_host }}
+    secretName: alertmanager-ingress-cert
+  rules:
+  - host: {{ .Values.alertmanager.tls_auth_host }}
+    http:
+      paths:
+      - backend:
+          serviceName: alertmanager-kubermatic
+          servicePort: web
+        path: /
+{{ end }}
+{{ end }}
