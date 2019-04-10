@@ -80,7 +80,6 @@ type VSphereSpec struct {
 // AWSSpec describes a aws datacenter
 type AWSSpec struct {
 	Region        string `yaml:"region"`
-	AMI           string `yaml:"ami"`
 	ZoneCharacter string `yaml:"zone_character"`
 }
 
