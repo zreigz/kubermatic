@@ -85,14 +85,14 @@ spec:
         - containerPort: 9090
           name: web
         livenessProbe:
-          failureThreshold: 6
+          failureThreshold: 60
           httpGet:
             path: /-/healthy
             port: web
-          initialDelaySeconds: 15
+          initialDelaySeconds: 60
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 3
         readinessProbe:
           failureThreshold: 120
           httpGet:
@@ -101,7 +101,7 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 3
         resources:
 {{ toYaml .Values.prometheus.containers.prometheus.resources | indent 10 }}
         volumeMounts:
