@@ -158,7 +158,7 @@ func main() {
 
 	usr, err := user.Current()
 	if err != nil {
-		log.Fatal("failed to get the current user", zap.Error(err))
+		log.Fatalw("failed to get the current user", zap.Error(err))
 	}
 	pubkeyPath := path.Join(usr.HomeDir, ".ssh/id_rsa.pub")
 
@@ -240,7 +240,7 @@ func main() {
 
 	kubermaticAPIServerAddress := os.Getenv("KUBERMATIC_APISERVER_ADDRESS")
 	if kubermaticAPIServerAddress == "" {
-		log.Fatalf("Kubermatic apiserver address must be set via KUBERMATIC_APISERVER_ADDRESS env var")
+		log.Fatal("Kubermatic apiserver address must be set via KUBERMATIC_APISERVER_ADDRESS env var")
 	}
 	opts.kubermaticClient = apiclient.New(httptransport.New(kubermaticAPIServerAddress, "", []string{"http"}), nil)
 	opts.secrets.kubermaticClient = opts.kubermaticClient
@@ -248,11 +248,11 @@ func main() {
 	if !opts.createOIDCToken {
 		opts.kubermatcProjectID = os.Getenv("KUBERMATIC_PROJECT_ID")
 		if opts.kubermatcProjectID == "" {
-			log.Fatalf("Kubermatic project id must be set via KUBERMATIC_PROJECT_ID env var")
+			log.Fatal("Kubermatic project id must be set via KUBERMATIC_PROJECT_ID env var")
 		}
 		kubermaticServiceaAccountToken := os.Getenv("KUBERMATIC_SERVICEACCOUNT_TOKEN")
 		if kubermaticServiceaAccountToken == "" {
-			log.Fatalf("A Kubermatic serviceAccountToken must be set via KUBERMATIC_SERVICEACCOUNT_TOKEN env var")
+			log.Fatal("A Kubermatic serviceAccountToken must be set via KUBERMATIC_SERVICEACCOUNT_TOKEN env var")
 		}
 		opts.kubermaticAuthenticator = httptransport.BearerToken(kubermaticServiceaAccountToken)
 	} else {
@@ -289,11 +289,11 @@ func main() {
 	// doesn't have all flags
 	seedName := os.Getenv("SEED_NAME")
 	if seedName == "" {
-		log.Fatalf("The name of the seed dc must be configured via the SEED_NAME env var")
+		log.Fatal("The name of the seed dc must be configured via the SEED_NAME env var")
 	}
 
 	if opts.existingClusterLabel != "" && opts.clusterParallelCount != 1 {
-		log.Fatalf("-cluster-parallel-count must be 1 when testing an existing cluster")
+		log.Fatal("-cluster-parallel-count must be 1 when testing an existing cluster")
 	}
 
 	for _, s := range strings.Split(providers, ",") {
@@ -303,14 +303,14 @@ func main() {
 	if pubKeyPath != "" {
 		keyData, err := ioutil.ReadFile(pubKeyPath)
 		if err != nil {
-			log.Fatalf("failed to load ssh key: %v", err)
+			log.Fatalw("failed to load ssh key", zap.Error(err))
 		}
 		opts.publicKeys = append(opts.publicKeys, keyData)
 	}
 
 	homeDir, e2eTestPubKeyBytes, err := setupHomeDir(log)
 	if err != nil {
-		log.Fatalf("failed to setup temporary home dir: %v", err)
+		log.Fatalw("failed to setup temporary home dir", zap.Error(err))
 	}
 	opts.publicKeys = append(opts.publicKeys, e2eTestPubKeyBytes)
 	opts.homeDir = homeDir
@@ -331,11 +331,11 @@ func main() {
 
 	config, err := clientcmd.BuildConfigFromFlags("", opts.kubeconfigPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalw("failed to build client", zap.Error(err))
 	}
 
 	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		log.Fatalf("failed to add clusterv1alpha1 to scheme: %v", err)
+		log.Fatalw("failed to add clusterv1alpha1 to scheme", zap.Error(err))
 	}
 
 	seedClusterClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{})
@@ -370,7 +370,7 @@ func main() {
 	if err := runner.Run(); err != nil {
 		log.Fatal(err)
 	}
-	log.Infof("Whole suite took: %.2f seconds", time.Since(start).Seconds())
+	log.Infof("Test suite completed", "duration", time.Since(start))
 }
 
 func getScenarios(opts Opts, log *zap.SugaredLogger) []testScenario {
@@ -448,9 +448,9 @@ func setupHomeDir(log *zap.SugaredLogger) (string, []byte, error) {
 	// We'll set the env-var $HOME to this directory when executing the tests
 	homeDir, err := ioutil.TempDir("/tmp", "e2e-home-")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to setup temporary home dir: %v", err)
+		return "", nil, fmt.Errorf("failed to setup temporary home directory: %v", err)
 	}
-	log.Infof("Setting up temporary home directory with ssh keys at %s...", homeDir)
+	log.Infow("Setting up temporary home directory with SSH keys...", "home", homeDir)
 
 	if err := os.MkdirAll(path.Join(homeDir, ".ssh"), os.ModePerm); err != nil {
 		return "", nil, err
@@ -458,7 +458,7 @@ func setupHomeDir(log *zap.SugaredLogger) (string, []byte, error) {
 
 	// Setup temporary home dir with filepath.Join(os.Getenv("HOME"), ".ssh")
 	// Make sure to create relevant ssh keys (because they are hardcoded in the e2e tests...). They must not be password protected
-	log.Debug("Generating ssh keys...")
+	log.Debug("Generating SSH keys...")
 	// Private Key generation
 	privateKey, err := rsa.GenerateKey(cryptorand.Reader, 4096)
 	if err != nil {
@@ -495,7 +495,7 @@ func setupHomeDir(log *zap.SugaredLogger) (string, []byte, error) {
 		return "", nil, err
 	}
 
-	log.Infof("Finished setting up temporary home dir %s", homeDir)
+	log.Infow("Finished setting up temporary home directory", "home", homeDir)
 	return homeDir, pubKeyBytes, nil
 }
 

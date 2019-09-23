@@ -137,6 +137,8 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 		return fmt.Errorf("failed to create namespace: %v", err)
 	}
 
+	log = log.With("namespace", ns.Name)
+
 	log.Info("Creating a Service of type LoadBalancer...")
 	labels := map[string]string{"app": "hello"}
 	service := &corev1.Service{
@@ -158,6 +160,8 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	if err := userClusterClient.Create(context.Background(), service); err != nil {
 		return fmt.Errorf("failed to create Service: %v", err)
 	}
+
+	log = log.With("service", service.Name)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -191,7 +195,7 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	err := wait.Poll(10*time.Second, defaultTimeout, func() (done bool, err error) {
 		currentService := &corev1.Service{}
 		if err := userClusterClient.Get(context.Background(), types.NamespacedName{Namespace: ns.Name, Name: service.Name}, currentService); err != nil {
-			log.Warnf("failed to load Service %s/%s from API server during LB test: %v", ns.Name, service.Name, err)
+			log.Warnw("failed to load Service from API server during LB test", zap.Error(err))
 			return false, nil
 		}
 		if len(currentService.Status.LoadBalancer.Ingress) > 0 {
@@ -213,24 +217,26 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	if err != nil {
 		return fmt.Errorf("failed to check if Service is ready: %v", err)
 	}
-	log.Debug("The Service has an external IP/Name")
+	log.Debug("Service has an external IP/Name")
 
 	url := fmt.Sprintf("http://%s:80", host)
+	log = log.With("url", url)
 	log.Debug("Waiting until the pod is available via the LB...")
+
 	err = wait.Poll(30*time.Second, defaultTimeout, func() (done bool, err error) {
 		resp, err := http.Get(url)
 		if err != nil {
-			log.Warnf("Failed to call Pod via LB(%s) during LB test: %v", url, err)
+			log.Warnw("Failed to call Pod via LB during LB test", zap.Error(err))
 			return false, nil
 		}
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				log.Warnf("Failed to close response body from Hello-Kubernetes Pod during LB test (%s): %v", url, err)
+				log.Warnw("Failed to close response body from Hello-Kubernetes Pod during LB test", zap.Error(err))
 			}
 		}()
 		contents, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			log.Warnf("Failed to read response body from Hello-Kubernetes Pod during LB test (%s): %v", url, err)
+			log.Warnw("Failed to read response body from Hello-Kubernetes Pod during LB test", zap.Error(err))
 			return false, nil
 		}
 

@@ -160,7 +160,7 @@ func (r *testRunner) worker(id int, scenarios <-chan testScenario, results chan<
 			err:      err,
 		}
 		if err != nil {
-			scenarioLog.Infof("Finished with error: %v", err)
+			scenarioLog.Warnw("Finished with error", zap.Error(err))
 		} else {
 			scenarioLog.Info("Finished")
 		}
@@ -178,7 +178,7 @@ func (r *testRunner) Run() error {
 		r.log.Info(scenario.Name())
 		scenariosCh <- scenario
 	}
-	r.log.Info(fmt.Sprintf("Total: %d tests", len(r.scenarios)))
+	r.log.Infow("Initialized scenarios", "scenarios", len(r.scenarios))
 
 	for i := 1; i <= r.clusterParallelCount; i++ {
 		go r.worker(i, scenariosCh, resultsCh)
@@ -188,8 +188,9 @@ func (r *testRunner) Run() error {
 
 	var results []testResult
 	for range r.scenarios {
-		results = append(results, <-resultsCh)
-		r.log.Infof("Finished %d/%d test cases", len(results), len(r.scenarios))
+		result := <-resultsCh
+		results = append(results, result)
+		r.log.Infow("Finished scenario", "scenario", result.scenario.Name(), "finished", len(results), "total", len(r.scenarios))
 	}
 
 	overallResultBuf := &bytes.Buffer{}
@@ -236,7 +237,7 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 	}
 
 	// We need the closure to defer the evaluation of the time.Since(totalStart) call
-	defer func() { log.Infof("Finished testing cluster after %s", time.Since(totalStart)) }()
+	defer func() { log.Infow("Finished testing cluster", "duration", time.Since(totalStart)) }()
 	// Always write junit to disk
 	defer func() {
 		report.Time = time.Since(totalStart).Seconds()
@@ -437,7 +438,8 @@ func (r *testRunner) deleteCluster(report *reporters.JUnitTestSuite, cluster *ku
 					return false, nil
 				}
 				// Issue Delete call
-				log.With("cluster", clusterList.Items[0].Name).Info("Issuing DELETE call for cluster")
+				log := log.With("cluster", clusterList.Items[0].Name)
+				log.Info("Issuing DELETE call for cluster")
 				deleteParms.ClusterID = clusterList.Items[0].Name
 				_, err := r.kubermaticClient.Project.DeleteCluster(deleteParms, r.kubermaticAuthenticator)
 				log.Errorw("cluster delete call returned error", zap.Error(errors.New(fmtSwaggerError(err))))
@@ -475,7 +477,7 @@ func (r *testRunner) testCluster(
 ) error {
 	const maxTestAttempts = 3
 	var err error
-	log.Info("Starting to test cluster...")
+	log.Info("Starting test cluster...")
 
 	if r.openshift {
 		// Openshift supports neither the conformance tests nor PVs/LBs yet :/
@@ -502,7 +504,6 @@ func (r *testRunner) testCluster(
 			// We still wan't to run potential next runs
 			continue
 		}
-
 	}
 
 	// Do a simple PVC test - with retries
@@ -515,7 +516,7 @@ func (r *testRunner) testCluster(
 					func(attempt int) error { return r.testPVC(log, userClusterClient, attempt) })
 			},
 		); err != nil {
-			log.Errorf("Failed to verify that PVC's work: %v", err)
+			log.Errorw("Failed to verify that PVC's work", zap.Error(err))
 		}
 	}
 
@@ -529,7 +530,7 @@ func (r *testRunner) testCluster(
 					func(attempt int) error { return r.testLB(log, userClusterClient, attempt) })
 			},
 		); err != nil {
-			log.Errorf("Failed to verify that LB's work: %v", err)
+			log.Errorw("Failed to verify that LB's work", zap.Error(err))
 		}
 	}
 
@@ -543,7 +544,7 @@ func (r *testRunner) testCluster(
 					return r.testUserclusterControllerRBAC(log, cluster, userClusterClient, r.seedClusterClient)
 				})
 		}); err != nil {
-		log.Errorf("Failed to verify that user cluster RBAC controller work: %v", err)
+		log.Errorw("Failed to verify that user cluster RBAC controller works", zap.Error(err))
 	}
 
 	return nil
@@ -555,23 +556,25 @@ func (r *testRunner) testCluster(
 func (r *testRunner) executeGinkgoRunWithRetries(log *zap.SugaredLogger, run *ginkgoRun, client ctrlruntimeclient.Client) (ginkgoRes *ginkgoResult, err error) {
 	const maxAttempts = 3
 
+	log = log.With("run", run.name)
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ginkgoRes, err = executeGinkgoRun(log, run, client)
 		if err != nil {
 			// Something critical happened and we don't have a valid result
-			log.Errorf("failed to execute the Ginkgo run '%s': %v", run.name, err)
+			log.Errorw("Failed to execute the Ginkgo run", zap.Error(err))
 			continue
 		}
 
 		if ginkgoRes.report.Errors > 0 || ginkgoRes.report.Failures > 0 {
-			msg := fmt.Sprintf("Ginkgo run '%s' had failed tests.", run.name)
+			msg := fmt.Sprintf("Ginkgo run had failed tests")
 			if attempt < maxAttempts {
 				msg = fmt.Sprintf("%s. Retrying...", msg)
 			}
 			log.Info(msg)
 			if r.printGinkoLogs {
 				if err := printFileUnbuffered(ginkgoRes.logfile); err != nil {
-					log.Infof("error printing ginkgo logfile: %v", err)
+					log.Errorw("Error printing ginkgo logfile", zap.Error(err))
 				}
 				log.Info("Successfully printed logfile")
 			}
@@ -592,7 +595,7 @@ func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario test
 	if err := wait.PollImmediate(10*time.Second, time.Minute, func() (bool, error) {
 		nodeDeployments, err = scenario.NodeDeployments(r.nodeCount, r.secrets)
 		if err != nil {
-			log.Info("Getting NodeDeployments from scenario failed", zap.Error(err))
+			log.Infow("Getting NodeDeployments from scenario failed", zap.Error(err))
 			return false, nil
 		}
 		return true, nil
@@ -611,12 +614,13 @@ func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario test
 
 		if err := retryNAttempts(defaultAPIRetries, func(attempt int) error {
 			if _, err := r.kubermaticClient.Project.CreateNodeDeployment(params, r.kubermaticAuthenticator); err != nil {
-				log.Warnf("[Attempt %d/%d] Failed to create NodeDeployment %s: %v. Retrying", attempt, defaultAPIRetries, nd.Name, fmtSwaggerError(err))
+				log := log.With("node-deployment", nd.Name, "attempt", attempt, "max-attempts", defaultAPIRetries)
+				log.Warnf("Failed to create NodeDeployment: %s. Retrying", fmtSwaggerError(err))
 				return err
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("failed to create NodeDeployment %s via kubermatic api after %d attempts: %q", nd.Name, defaultAPIRetries, fmtSwaggerError(err))
+			return fmt.Errorf("failed to create NodeDeployment %s via kubermatic API after %d attempts: %s", nd.Name, defaultAPIRetries, fmtSwaggerError(err))
 		}
 	}
 
@@ -645,7 +649,7 @@ func (r *testRunner) getKubeconfig(log *zap.SugaredLogger, cluster *kubermaticv1
 		return "", fmt.Errorf("failed to write kubeconfig to %s: %v", filename, err)
 	}
 
-	log.Infof("Successfully wrote kubeconfig to %s", filename)
+	log.Infow("Successfully retrieved kubeconfig", "file", filename)
 	return filename, nil
 }
 
@@ -671,7 +675,7 @@ func (r *testRunner) getCloudConfig(log *zap.SugaredLogger, cluster *kubermaticv
 		return "", fmt.Errorf("failed to write cloud config: %v", err)
 	}
 
-	log.Infof("Successfully wrote cloud-config to %s", filename)
+	log.Infow("Successfully retrieved cloud-config", "file", filename)
 	return filename, nil
 }
 
@@ -727,7 +731,7 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 			if _, err := r.kubermaticClient.Project.CreateCluster(params, r.kubermaticAuthenticator); err != nil {
 				// Log the error but don't return it, we want to retry
 				errs = append(errs, err)
-				log.Errorf("failed to create cluster via kubermatic api: %q, %v", fmtSwaggerError(err), err)
+				log.With(zap.Error(err)).Errorf("failed to create cluster via kubermatic api: %q", fmtSwaggerError(err))
 			}
 			// Always return here, our clusterList is not up to date anymore
 			return false, nil
@@ -788,7 +792,7 @@ func (r *testRunner) waitForControlPlane(log *zap.SugaredLogger, clusterName str
 		return nil, err
 	}
 
-	log.Debugf("Control plane became ready after %.2f seconds", time.Since(started).Seconds())
+	log.Debugw("Control plane became ready", "duration", time.Since(started))
 	return cluster, nil
 }
 
@@ -799,7 +803,7 @@ func (r *testRunner) waitUntilAllPodsAreReady(log *zap.SugaredLogger, userCluste
 	err := wait.Poll(defaultUserClusterPollInterval, timeout, func() (done bool, err error) {
 		podList := &corev1.PodList{}
 		if err := userClusterClient.List(context.Background(), &ctrlruntimeclient.ListOptions{}, podList); err != nil {
-			log.Warnf("failed to load pod list while waiting until all pods are running: %v", err)
+			log.Warnw("failed to load PodList while waiting until all pods are running", zap.Error(err))
 			return false, nil
 		}
 
@@ -814,7 +818,7 @@ func (r *testRunner) waitUntilAllPodsAreReady(log *zap.SugaredLogger, userCluste
 		return err
 	}
 
-	log.Debugf("All pods became ready after %.2f seconds", time.Since(started).Seconds())
+	log.Debugw("All pods became ready", "duration", time.Since(started))
 	return nil
 }
 
@@ -973,17 +977,18 @@ func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlr
 		return nil, fmt.Errorf("failed to write command to log: %v", err)
 	}
 
-	log.Debugf("Starting Ginkgo run '%s'...", run.name)
+	log = log.With("ginkgo-run", run.name)
+	log.Debug("Starting Ginkgo run...")
 
 	// Flush to disk so we can actually watch logs
 	stopCh := make(chan struct{}, 1)
 	defer close(stopCh)
 	go wait.Until(func() {
 		if err := writer.Flush(); err != nil {
-			log.Warnf("failed to flush log writer: %v", err)
+			log.Warnw("failed to flush log writer", zap.Error(err))
 		}
 		if err := file.Sync(); err != nil {
-			log.Warnf("failed to sync log file: %v", err)
+			log.Warnw("failed to sync log file", zap.Error(err))
 		}
 	}, 1*time.Second, stopCh)
 
@@ -991,7 +996,7 @@ func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlr
 	cmd.Stderr = writer
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			log.Debugf("Ginkgo exited with a non 0 return code: %v", exitErr)
+			log.Debugw("Ginkgo exited with a non 0 return code", zap.Error(exitErr))
 		} else {
 			return nil, fmt.Errorf("ginkgo failed to start: %T %v", err, err)
 		}
@@ -1008,13 +1013,14 @@ func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlr
 		return nil, errors.New("ginkgo report is empty. It seems no tests where executed")
 	}
 
-	combinedReport.Time = time.Since(started).Seconds()
+	duration := time.Since(started)
+	combinedReport.Time = duration.Seconds()
 
-	log.Debugf("Ginkgo run '%s' took %s", run.name, time.Since(started))
+	log.Debugf("Ginkgo run completed", "duration", duration)
 	return &ginkgoResult{
 		logfile:  file.Name(),
 		report:   combinedReport,
-		duration: time.Since(started),
+		duration: duration,
 	}, nil
 }
 
@@ -1088,7 +1094,7 @@ func waitForMachinesToJoinCluster(log *zap.SugaredLogger, client ctrlruntimeclie
 				return false, nil
 			}
 		}
-		log.Infow("All machines got a Node", "duration-in-seconds", time.Since(startTime).Seconds())
+		log.Infow("All machines got a Node", "duration", time.Since(startTime))
 		return true, nil
 	})
 }
@@ -1113,7 +1119,7 @@ func waitForNodesToBeReady(log *zap.SugaredLogger, client ctrlruntimeclient.Clie
 				return false, nil
 			}
 		}
-		log.Infow("All nodes got ready", "duration-in-seconds", time.Since(startTime).Seconds())
+		log.Infow("All nodes got ready", "duration", time.Since(startTime))
 		return true, nil
 	})
 }

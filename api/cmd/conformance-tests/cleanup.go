@@ -21,7 +21,7 @@ func deleteAllNonDefaultNamespaces(log *zap.SugaredLogger, client ctrlruntimecli
 		namespaceList := &corev1.NamespaceList{}
 		ctx := context.Background()
 		if err := client.List(ctx, &ctrlruntimeclient.ListOptions{}, namespaceList); err != nil {
-			log.Errorf("failed to list namespaces: %v", err)
+			log.Errorw("failed to list namespaces", zap.Error(err))
 			return false, nil
 		}
 
@@ -42,7 +42,7 @@ func deleteAllNonDefaultNamespaces(log *zap.SugaredLogger, client ctrlruntimecli
 			// If its not gone & the DeletionTimestamp is nil, delete it
 			if namespace.DeletionTimestamp == nil {
 				if err := client.Delete(ctx, &namespace); err != nil {
-					log.Errorf("Failed to delete namespace: %v", err)
+					log.Errorw("Failed to delete namespace", zap.Error(err))
 				} else {
 					log.Debugf("Called delete on namespace")
 				}
