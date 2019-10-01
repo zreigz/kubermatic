@@ -176,7 +176,7 @@ type operationGenerator struct {
 
 func intersectTags(left, right []string) (filtered []string) {
 	if len(right) == 0 {
-		filtered = left[:]
+		filtered = left
 		return
 	}
 	for _, l := range left {
@@ -230,7 +230,7 @@ func (o *operationGenerator) Generate() error {
 		st = o.GenOpts.Tags
 	}
 	intersected := intersectTags(o.Operation.Tags, st)
-	if len(intersected) == 1 {
+	if len(intersected) > 0 {
 		tag := intersected[0]
 		bldr.APIPackage = o.GenOpts.LanguageOpts.ManglePackagePath(tag, o.APIPackage)
 	}
@@ -345,7 +345,7 @@ func (b *codeGenOpBuilder) MakeOperation() (GenOperation, error) {
 			idMapping[p.In][p.Name] = swag.ToGoName(p.Name)
 		}
 		seenIds[p.Name] = append(seenIds[p.Name], p.In)
-		if strings.ToLower(p.Name) == strings.ToLower(timeoutName) {
+		if strings.EqualFold(p.Name, timeoutName) {
 			timeoutName = renameTimeout(seenIds, timeoutName)
 		}
 	}
@@ -400,7 +400,12 @@ func (b *codeGenOpBuilder) MakeOperation() (GenOperation, error) {
 		for _, v := range srs {
 			name, ok := v.Response.Extensions.GetString(xGoName)
 			if !ok {
+				// look for name of well-known codes
 				name = runtime.Statuses[v.Code]
+				if name == "" {
+					// non-standard codes deserve some name
+					name = fmt.Sprintf("Status %d", v.Code)
+				}
 			}
 			name = swag.ToJSONName(b.Name + " " + name)
 			isSuccess := v.Code/100 == 2
@@ -489,7 +494,7 @@ func (b *codeGenOpBuilder) MakeOperation() (GenOperation, error) {
 		Method:               b.Method,
 		Path:                 b.Path,
 		BasePath:             b.BasePath,
-		Tags:                 operation.Tags[:],
+		Tags:                 operation.Tags,
 		Description:          trimBOM(operation.Description),
 		ReceiverName:         receiver,
 		DefaultImports:       b.DefaultImports,
@@ -673,7 +678,6 @@ func (b *codeGenOpBuilder) MakeHeaderItem(receiver, paramName, indexVar, path, v
 
 // HasValidations resolves the validation status for simple schema objects
 func (b *codeGenOpBuilder) HasValidations(sh spec.CommonValidations, rt resolvedType) (hasValidations bool, hasSliceValidations bool) {
-	// TODO: exclude format byte (istrfmt.Base64) from validation (issue#1548)
 	hasNumberValidation := sh.Maximum != nil || sh.Minimum != nil || sh.MultipleOf != nil
 	hasStringValidation := sh.MaxLength != nil || sh.MinLength != nil || sh.Pattern != ""
 	hasSliceValidations = sh.MaxItems != nil || sh.MinItems != nil || sh.UniqueItems || len(sh.Enum) > 0
@@ -793,11 +797,12 @@ func (b *codeGenOpBuilder) MakeBodyParameter(res *GenParameter, resolver *typeRe
 	var items *GenItems
 	res.KeyVar = "k"
 	res.Schema.KeyVar = "k"
-	if schema.IsMap && !schema.IsInterface {
+	switch {
+	case schema.IsMap && !schema.IsInterface:
 		items = b.MakeBodyParameterItemsAndMaps(res, res.Schema.AdditionalProperties)
-	} else if schema.IsArray {
+	case schema.IsArray:
 		items = b.MakeBodyParameterItemsAndMaps(res, res.Schema.Items)
-	} else {
+	default:
 		items = new(GenItems)
 	}
 
@@ -873,11 +878,12 @@ func (b *codeGenOpBuilder) MakeBodyParameterItemsAndMaps(res *GenParameter, it *
 			prev = next
 			next = new(GenItems)
 
-			if it.Items != nil {
+			switch {
+			case it.Items != nil:
 				it = it.Items
-			} else if it.AdditionalProperties != nil {
+			case it.AdditionalProperties != nil:
 				it = it.AdditionalProperties
-			} else {
+			default:
 				it = nil
 			}
 		}
@@ -1019,7 +1025,6 @@ func (b *codeGenOpBuilder) saveResolveContext(resolver *typeResolver, schema *sp
 // We need to rebuild the schema with a new type resolver to reflect this change in the
 // models package.
 func (b *codeGenOpBuilder) liftExtraSchemas(resolver, br *typeResolver, bs *spec.Schema, sc *schemaGenContext) (schema *GenSchema, err error) {
-
 	// restore resolving state before previous call to makeGenSchema()
 	rslv := br
 	sc.Schema = *bs
@@ -1049,7 +1054,7 @@ func (b *codeGenOpBuilder) liftExtraSchemas(resolver, br *typeResolver, bs *spec
 // buildOperationSchema constructs a schema for an operation (for body params or responses).
 // It determines if the schema is readily available from the models package,
 // or if a schema has to be generated in the operations package (i.e. is anonymous).
-// Whenever an anonymous schema needs somes extra schemas, we also determine if these extras are
+// Whenever an anonymous schema needs some extra schemas, we also determine if these extras are
 // available from models or must be generated alongside the schema in the operations package.
 //
 // Duplicate extra schemas are pruned later on, when operations grouping in packages (e.g. from tags) takes place.
@@ -1061,18 +1066,19 @@ func (b *codeGenOpBuilder) buildOperationSchema(schemaPath, containerName, schem
 	}
 	rslv := resolver
 	sc := schemaGenContext{
-		Path:             schemaPath,
-		Name:             containerName,
-		Receiver:         receiverName,
-		ValueExpr:        receiverName,
-		IndexVar:         indexVar,
-		Schema:           *sch,
-		Required:         false,
-		TypeResolver:     rslv,
-		Named:            false,
-		IncludeModel:     true,
-		IncludeValidator: true,
-		ExtraSchemas:     make(map[string]GenSchema),
+		Path:                       schemaPath,
+		Name:                       containerName,
+		Receiver:                   receiverName,
+		ValueExpr:                  receiverName,
+		IndexVar:                   indexVar,
+		Schema:                     *sch,
+		Required:                   false,
+		TypeResolver:               rslv,
+		Named:                      false,
+		IncludeModel:               true,
+		IncludeValidator:           true,
+		StrictAdditionalProperties: b.GenOpts.StrictAdditionalProperties,
+		ExtraSchemas:               make(map[string]GenSchema),
 	}
 
 	var (
@@ -1086,6 +1092,9 @@ func (b *codeGenOpBuilder) buildOperationSchema(schemaPath, containerName, schem
 
 	if err := sc.makeGenSchema(); err != nil {
 		return GenSchema{}, err
+	}
+	for alias, pkg := range findImports(&sc.GenSchema) {
+		b.Imports[alias] = pkg
 	}
 
 	if sch.Ref.String() == "" && len(sc.ExtraSchemas) > 0 {

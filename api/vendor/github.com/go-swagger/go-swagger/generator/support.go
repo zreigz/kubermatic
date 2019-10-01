@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -27,6 +28,8 @@ import (
 	goruntime "runtime"
 	"sort"
 	"strings"
+
+	yaml "gopkg.in/yaml.v2"
 
 	"github.com/go-openapi/analysis"
 	"github.com/go-openapi/loads"
@@ -85,6 +88,10 @@ func newAppGenerator(name string, modelNames, operationIDs []string, opts *GenOp
 	if !filepath.IsAbs(opts.Spec) {
 		cwd, _ := os.Getwd()
 		opts.Spec = filepath.Join(cwd, opts.Spec)
+	}
+
+	if opts.PropertiesSpecOrder {
+		opts.Spec = withAutoXOrder(opts.Spec)
 	}
 
 	opts.Spec, specDoc, err = loadSpec(opts.Spec)
@@ -169,6 +176,82 @@ type appGenerator struct {
 	DefaultProduces   string
 	DefaultConsumes   string
 	GenOpts           *GenOpts
+}
+
+func withAutoXOrder(specPath string) string {
+	lookFor := func(ele interface{}, key string) (yaml.MapSlice, bool) {
+		if slice, ok := ele.(yaml.MapSlice); ok {
+			for _, v := range slice {
+				if v.Key == key {
+					if slice, ok := v.Value.(yaml.MapSlice); ok {
+						return slice, ok
+					}
+				}
+			}
+		}
+		return nil, false
+	}
+
+	var addXOrder func(interface{})
+	addXOrder = func(element interface{}) {
+		if props, ok := lookFor(element, "properties"); ok {
+			for i, prop := range props {
+				if pSlice, ok := prop.Value.(yaml.MapSlice); ok {
+					isObject := false
+					xOrderIndex := -1 //Find if x-order already exists
+
+					for i, v := range pSlice {
+						if v.Key == "type" && v.Value == object {
+							isObject = true
+						}
+						if v.Key == xOrder {
+							xOrderIndex = i
+							break
+						}
+					}
+
+					if xOrderIndex > -1 { //Override existing x-order
+						pSlice[xOrderIndex] = yaml.MapItem{Key: xOrder, Value: i}
+					} else { // append new x-order
+						pSlice = append(pSlice, yaml.MapItem{Key: xOrder, Value: i})
+					}
+					prop.Value = pSlice
+					props[i] = prop
+
+					if isObject {
+						addXOrder(pSlice)
+					}
+				}
+			}
+		}
+	}
+
+	yamlDoc, err := swag.YAMLData(specPath)
+	if err != nil {
+		panic(err)
+	}
+
+	if defs, ok := lookFor(yamlDoc, "definitions"); ok {
+		for _, def := range defs {
+			addXOrder(def.Value)
+		}
+	}
+
+	addXOrder(yamlDoc)
+
+	out, err := yaml.Marshal(yamlDoc)
+	if err != nil {
+		panic(err)
+	}
+
+	tmpFile, err := ioutil.TempFile("", filepath.Base(specPath))
+	if err != nil {
+		panic(err)
+	}
+	if err := ioutil.WriteFile(tmpFile.Name(), out, 0); err != nil {
+		panic(err)
+	}
+	return tmpFile.Name()
 }
 
 // 1. Checks if the child path and parent path coincide.
@@ -530,9 +613,6 @@ func (a *appGenerator) makeCodegenApp() (GenApp, error) {
 	var genMods GenDefinitions
 	importPath := a.GenOpts.ExistingModels
 	if a.GenOpts.ExistingModels == "" {
-		if imports == nil {
-			imports = make(map[string]string)
-		}
 		imports[a.GenOpts.LanguageOpts.ManglePackageName(a.ModelsPackage, "models")] = path.Join(
 			filepath.ToSlash(baseImport),
 			a.GenOpts.LanguageOpts.ManglePackagePath(a.GenOpts.ModelPackage, "models"))
@@ -608,7 +688,7 @@ func (a *appGenerator) makeCodegenApp() (GenApp, error) {
 			continue
 		}
 
-		if len(intersected) == 1 {
+		if len(intersected) > 0 {
 			tag := intersected[0]
 			bldr.APIPackage = a.GenOpts.LanguageOpts.ManglePackagePath(tag, a.APIPackage)
 			for _, t := range intersected {

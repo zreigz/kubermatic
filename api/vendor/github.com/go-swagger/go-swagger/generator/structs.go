@@ -53,55 +53,68 @@ type GenSchemaList []GenSchema
 type GenSchema struct {
 	resolvedType
 	sharedValidations
-	Example                 string
-	OriginalName            string
-	Name                    string
-	Suffix                  string
-	Path                    string
-	ValueExpression         string
-	IndexVar                string
-	KeyVar                  string
-	Title                   string
-	Description             string
-	Location                string
-	ReceiverName            string
-	Items                   *GenSchema
-	AllowsAdditionalItems   bool
-	HasAdditionalItems      bool
-	AdditionalItems         *GenSchema
-	Object                  *GenSchema
-	XMLName                 string
-	CustomTag               string
-	Properties              GenSchemaList
-	AllOf                   GenSchemaList
-	HasAdditionalProperties bool
-	IsAdditionalProperties  bool
-	AdditionalProperties    *GenSchema
-	ReadOnly                bool
-	IsVirtual               bool
-	IsBaseType              bool
-	HasBaseType             bool
-	IsSubType               bool
-	IsExported              bool
-	DiscriminatorField      string
-	DiscriminatorValue      string
-	Discriminates           map[string]string
-	Parents                 []string
-	IncludeValidator        bool
-	IncludeModel            bool
-	Default                 interface{}
+	Example                    string
+	OriginalName               string
+	Name                       string
+	Suffix                     string
+	Path                       string
+	ValueExpression            string
+	IndexVar                   string
+	KeyVar                     string
+	Title                      string
+	Description                string
+	Location                   string
+	ReceiverName               string
+	Items                      *GenSchema
+	AllowsAdditionalItems      bool
+	HasAdditionalItems         bool
+	AdditionalItems            *GenSchema
+	Object                     *GenSchema
+	XMLName                    string
+	CustomTag                  string
+	Properties                 GenSchemaList
+	AllOf                      GenSchemaList
+	HasAdditionalProperties    bool
+	IsAdditionalProperties     bool
+	AdditionalProperties       *GenSchema
+	StrictAdditionalProperties bool
+	ReadOnly                   bool
+	IsVirtual                  bool
+	IsBaseType                 bool
+	HasBaseType                bool
+	IsSubType                  bool
+	IsExported                 bool
+	DiscriminatorField         string
+	DiscriminatorValue         string
+	Discriminates              map[string]string
+	Parents                    []string
+	IncludeValidator           bool
+	IncludeModel               bool
+	Default                    interface{}
 }
 
 func (g GenSchemaList) Len() int      { return len(g) }
 func (g GenSchemaList) Swap(i, j int) { g[i], g[j] = g[j], g[i] }
 func (g GenSchemaList) Less(i, j int) bool {
-	a, ok := g[i].Extensions[xOrder].(float64)
-	if ok {
-		b, ok := g[j].Extensions[xOrder].(float64)
-		if ok {
-			return a < b
-		}
+	a, okA := g[i].Extensions[xOrder].(float64)
+	b, okB := g[j].Extensions[xOrder].(float64)
+
+	// If both properties have x-order defined, then the one with lower x-order is smaller
+	if okA && okB {
+		return a < b
 	}
+
+	// If only the first property has x-order defined, then it is smaller
+	if okA {
+		return true
+	}
+
+	// If only the second property has x-order defined, then it is smaller
+	if okB {
+		return false
+	}
+
+	// If neither property has x-order defined, then the one with lower lexicographic name is smaller
 	return g[i].Name < g[j].Name
 }
 
@@ -528,6 +541,11 @@ func (g *GenApp) UseGoStructFlags() bool {
 // UsePFlags returns true when the flag strategy is set to pflag
 func (g *GenApp) UsePFlags() bool {
 	return g.GenOpts != nil && strings.HasPrefix(g.GenOpts.FlagStrategy, "pflag")
+}
+
+// UseFlags returns true when the flag strategy is set to flag
+func (g *GenApp) UseFlags() bool {
+	return g.GenOpts != nil && strings.HasPrefix(g.GenOpts.FlagStrategy, "flag")
 }
 
 // UseIntermediateMode for https://wiki.mozilla.org/Security/Server_Side_TLS#Intermediate_compatibility_.28default.29
