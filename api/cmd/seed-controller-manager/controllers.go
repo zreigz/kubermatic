@@ -18,8 +18,8 @@ import (
 	openshiftcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/openshift"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/seedresourcesuptodatecondition"
 	updatecontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/update"
-	"github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/usersshkeys"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/features"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +41,6 @@ var AllControllers = map[string]controllerCreator{
 	cloudcontroller.ControllerName:                createCloudController,
 	openshiftcontroller.ControllerName:            createOpenshiftController,
 	clustercomponentdefaulter.ControllerName:      createClusterComponentDefaulter,
-	usersshkeys.ControllerName:                    createUserSSHKeyController,
 	seedresourcesuptodatecondition.ControllerName: createSeedConditionUpToDateController,
 }
 
@@ -122,8 +121,8 @@ func createOpenshiftController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.kubermaticImage,
 		ctrlCtx.runOptions.dnatControllerImage,
 		openshiftcontroller.Features{
-			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
-			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(features.EtcdDataCorruptionChecks),
+			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(features.VerticalPodAutoscaler),
 		},
 		ctrlCtx.runOptions.concurrentClusterUpdate); err != nil {
 		return fmt.Errorf("failed to add openshift controller to mgr: %v", err)
@@ -158,9 +157,9 @@ func createKubernetesController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.kubermaticImage,
 		ctrlCtx.runOptions.dnatControllerImage,
 		kubernetescontroller.Features{
-			VPA:                          ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
-			EtcdDataCorruptionChecks:     ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
-			KubernetesOIDCAuthentication: ctrlCtx.runOptions.featureGates.Enabled(OpenIDAuthPlugin),
+			VPA:                          ctrlCtx.runOptions.featureGates.Enabled(features.VerticalPodAutoscaler),
+			EtcdDataCorruptionChecks:     ctrlCtx.runOptions.featureGates.Enabled(features.EtcdDataCorruptionChecks),
+			KubernetesOIDCAuthentication: ctrlCtx.runOptions.featureGates.Enabled(features.OpenIDAuthPlugin),
 		},
 	)
 }
@@ -217,7 +216,7 @@ func createMonitoringController(ctrlCtx *controllerContext) error {
 
 		ctrlCtx.runOptions.concurrentClusterUpdate,
 		monitoring.Features{
-			VPA: ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+			VPA: ctrlCtx.runOptions.featureGates.Enabled(features.VerticalPodAutoscaler),
 		},
 	)
 }
@@ -306,12 +305,4 @@ func createAddonInstallerController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.workerName,
 		kubernetesAddons,
 		openshiftAddons)
-}
-
-func createUserSSHKeyController(ctrlCtx *controllerContext) error {
-	return usersshkeys.Add(
-		ctrlCtx.mgr,
-		ctrlCtx.log,
-		ctrlCtx.runOptions.workerName,
-		ctrlCtx.runOptions.workerCount)
 }

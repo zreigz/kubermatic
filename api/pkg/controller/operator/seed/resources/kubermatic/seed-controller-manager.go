@@ -7,6 +7,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/controller/operator/common"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	operatorv1alpha1 "github.com/kubermatic/kubermatic/api/pkg/crd/operator/v1alpha1"
+	"github.com/kubermatic/kubermatic/api/pkg/features"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
@@ -21,13 +22,13 @@ import (
 
 func seedControllerManagerPodLabels() map[string]string {
 	return map[string]string{
-		nameLabel: "kubermatic-seed-controller-manager",
+		common.NameLabel: common.SeedControllerManagerDeploymentName,
 	}
 }
 
-func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed) reconciling.NamedDeploymentCreatorGetter {
+func SeedControllerManagerDeploymentCreator(workerName string, versions common.Versions, cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
-		return seedControllerManagerDeploymentName, func(d *appsv1.Deployment) (*appsv1.Deployment, error) {
+		return common.SeedControllerManagerDeploymentName, func(d *appsv1.Deployment) (*appsv1.Deployment, error) {
 			d.Spec.Replicas = pointer.Int32Ptr(2)
 			d.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: seedControllerManagerPodLabels(),
@@ -37,7 +38,7 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 			d.Spec.Template.Annotations = map[string]string{
 				"prometheus.io/scrape": "true",
 				"prometheus.io/port":   "8085",
-				"fluentbit.io/parser":  "glog",
+				"fluentbit.io/parser":  "json_iso",
 			}
 
 			d.Spec.Template.Spec.ServiceAccountName = serviceAccountName
@@ -48,36 +49,44 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 			}
 
 			args := []string{
+				"-logtostderr",
 				"-dynamic-datacenters=true",
 				"-internal-address=0.0.0.0:8085",
 				"-kubernetes-addons-path=/opt/addons/kubernetes",
 				"-openshift-addons-path=/opt/addons/openshift",
-				"-backup-container=/opt/backup/store-container.yaml",
-				"-cleanup-container=/opt/backup/cleanup-container.yaml",
-				"-docker-pull-config-json-file=/opt/docker/.dockerconfigjson",
+				"-worker-count=4",
+				fmt.Sprintf("-backup-container=/opt/backup/%s", storeContainerKey),
+				fmt.Sprintf("-cleanup-container=/opt/backup/%s", cleanupContainerKey),
+				fmt.Sprintf("-docker-pull-config-json-file=/opt/docker/%s", corev1.DockerConfigJsonKey),
 				fmt.Sprintf("-seed-admissionwebhook-cert-file=/opt/seed-webhook-serving-cert/%s", resources.ServingCertSecretKey),
 				fmt.Sprintf("-seed-admissionwebhook-key-file=/opt/seed-webhook-serving-cert/%s", resources.ServingCertKeySecretKey),
 				fmt.Sprintf("-namespace=%s", cfg.Namespace),
 				fmt.Sprintf("-external-url=%s", cfg.Spec.Domain),
 				fmt.Sprintf("-datacenter-name=%s", seed.Name),
-				fmt.Sprintf("-etcd-disk-size=%s", "5Gi"), // TODO: add to KubermaticConfiguration
+				fmt.Sprintf("-etcd-disk-size=%s", cfg.Spec.UserCluster.EtcdVolumeSize),
 				fmt.Sprintf("-feature-gates=%s", common.StringifyFeatureGates(cfg)),
-				fmt.Sprintf("-nodeport-range=%s", cfg.Spec.SeedController.NodePortRange),
-				fmt.Sprintf("-worker-count=%d", 4),
+				fmt.Sprintf("-nodeport-range=%s", cfg.Spec.UserCluster.NodePortRange),
 				fmt.Sprintf("-worker-name=%s", workerName),
-				fmt.Sprintf("-kubermatic-image=%s", cfg.Spec.SeedController.KubermaticImage),
-				fmt.Sprintf("-dnatcontoller-image=%s", "TODO"),
-				fmt.Sprintf("-kubernetes-addons-list=%s", strings.Join(cfg.Spec.SeedController.Addons.Kubernetes.Default, ",")),
-				fmt.Sprintf("-openshift-addons-list=%s", strings.Join(cfg.Spec.SeedController.Addons.Openshift.Default, ",")),
-				fmt.Sprintf("-overwrite-registry=%s", cfg.Spec.SeedController.OverwriteRegistry),
+				fmt.Sprintf("-kubermatic-image=%s", cfg.Spec.UserCluster.KubermaticDockerRepository),
+				fmt.Sprintf("-dnatcontoller-image=%s", cfg.Spec.UserCluster.DNATControllerDockerRepository),
+				fmt.Sprintf("-kubernetes-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Kubernetes.Default, ",")),
+				fmt.Sprintf("-openshift-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Openshift.Default, ",")),
+				fmt.Sprintf("-overwrite-registry=%s", cfg.Spec.UserCluster.OverwriteRegistry),
 				fmt.Sprintf("-apiserver-default-replicas=%d", 2),
 				fmt.Sprintf("-controller-manager-default-replicas=%d", 1),
 				fmt.Sprintf("-scheduler-default-replicas=%d", 1),
 				fmt.Sprintf("-max-parallel-reconcile=%d", 10),
-				fmt.Sprintf("-apiserver-reconciling-disabled-by-default=%v", false),
-				fmt.Sprintf("-in-cluster-prometheus-disable-default-rules=%v", cfg.Spec.SeedController.Monitoring.DisableDefaultRules),
-				fmt.Sprintf("-in-cluster-prometheus-disable-default-scraping-configs=%v", cfg.Spec.SeedController.Monitoring.DisableDefaultScrapingConfigs),
-				fmt.Sprintf("-monitoring-scrape-annotation-prefix=%s", cfg.Spec.SeedController.Monitoring.ScrapeAnnotationPrefix),
+				fmt.Sprintf("-apiserver-reconciling-disabled-by-default=%v", cfg.Spec.UserCluster.DisableAPIServerEndpointReconciling),
+				fmt.Sprintf("-pprof-listen-address=%s", *cfg.Spec.SeedController.PProfEndpoint),
+				fmt.Sprintf("-in-cluster-prometheus-disable-default-rules=%v", cfg.Spec.UserCluster.Monitoring.DisableDefaultRules),
+				fmt.Sprintf("-in-cluster-prometheus-disable-default-scraping-configs=%v", cfg.Spec.UserCluster.Monitoring.DisableDefaultScrapingConfigs),
+				fmt.Sprintf("-monitoring-scrape-annotation-prefix=%s", cfg.Spec.UserCluster.Monitoring.ScrapeAnnotationPrefix),
+			}
+
+			if cfg.Spec.SeedController.DebugLog {
+				args = append(args, "-v4", "-log-debug=true")
+			} else {
+				args = append(args, "-v2")
 			}
 
 			sharedAddonVolume := "addons"
@@ -163,7 +172,7 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 				})
 			}
 
-			if cfg.Spec.FeatureGates.Has(openIDAuthFeatureFlag) {
+			if cfg.Spec.FeatureGates.Has(features.OpenIDAuthPlugin) {
 				args = append(args,
 					"-oidc-ca-file=/opt/dex-ca/caBundle.pem",
 					fmt.Sprintf("-oidc-issuer-url=%s", cfg.Spec.Auth.TokenIssuer),
@@ -187,7 +196,7 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 				})
 			}
 
-			if len(cfg.Spec.SeedController.Monitoring.CustomScrapingConfigs) > 0 {
+			if len(cfg.Spec.UserCluster.Monitoring.CustomScrapingConfigs) > 0 {
 				path := "/opt/" + clusterNamespacePrometheusScrapingConfigsConfigMapName
 				args = append(args, fmt.Sprintf("-in-cluster-prometheus-scraping-configs-file=%s/%s", path, clusterNamespacePrometheusScrapingConfigsKey))
 
@@ -209,7 +218,7 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 				})
 			}
 
-			if len(cfg.Spec.SeedController.Monitoring.CustomRules) > 0 {
+			if len(cfg.Spec.UserCluster.Monitoring.CustomRules) > 0 {
 				path := "/opt/" + clusterNamespacePrometheusRulesConfigMapName
 				args = append(args, fmt.Sprintf("-in-cluster-prometheus-rules-file=%s/%s", path, clusterNamespacePrometheusRulesKey))
 
@@ -233,13 +242,13 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 
 			d.Spec.Template.Spec.Volumes = volumes
 			d.Spec.Template.Spec.InitContainers = []corev1.Container{
-				createKubernetesAddonsInitContainer(cfg, sharedAddonVolume),
-				createOpenshiftAddonsInitContainer(cfg, sharedAddonVolume),
+				createKubernetesAddonsInitContainer(cfg, sharedAddonVolume, versions.Kubermatic),
+				createOpenshiftAddonsInitContainer(cfg, sharedAddonVolume, versions.Kubermatic),
 			}
 			d.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    "controller-manager",
-					Image:   cfg.Spec.SeedController.Image,
+					Image:   cfg.Spec.SeedController.DockerRepository + ":" + versions.Kubermatic,
 					Command: []string{"kubermatic-controller-manager"},
 					Args:    args,
 					Ports: []corev1.ContainerPort{
@@ -268,10 +277,10 @@ func SeedControllerManagerDeploymentCreator(workerName string, cfg *operatorv1al
 	}
 }
 
-func createKubernetesAddonsInitContainer(cfg *operatorv1alpha1.KubermaticConfiguration, addonVolume string) corev1.Container {
+func createKubernetesAddonsInitContainer(cfg *operatorv1alpha1.KubermaticConfiguration, addonVolume string, dockerTag string) corev1.Container {
 	return corev1.Container{
 		Name:    "copy-addons-kubernetes",
-		Image:   cfg.Spec.SeedController.Addons.Kubernetes.Image,
+		Image:   cfg.Spec.UserCluster.Addons.Kubernetes.DockerRepository + ":" + dockerTag,
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",
@@ -286,10 +295,10 @@ func createKubernetesAddonsInitContainer(cfg *operatorv1alpha1.KubermaticConfigu
 	}
 }
 
-func createOpenshiftAddonsInitContainer(cfg *operatorv1alpha1.KubermaticConfiguration, addonVolume string) corev1.Container {
+func createOpenshiftAddonsInitContainer(cfg *operatorv1alpha1.KubermaticConfiguration, addonVolume string, dockerTag string) corev1.Container {
 	return corev1.Container{
 		Name:    "copy-addons-openshift",
-		Image:   cfg.Spec.SeedController.Addons.Openshift.Image,
+		Image:   cfg.Spec.UserCluster.Addons.Openshift.DockerRepository + ":" + dockerTag,
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

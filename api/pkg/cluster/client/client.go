@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	openshiftuserclusterresources "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/openshift"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/util/restmapper"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -46,87 +43,41 @@ type Provider struct {
 
 	// We keep the existing cluster mappings to avoid the discovery on each call to the API server
 	restMapperCache *restmapper.Cache
-
-	// Can be set for tests
-	overrideGetClientFunc func(*kubermaticv1.Cluster, ...ConfigOption) (ctrlruntimeclient.Client, error)
 }
 
-// GetAdminKubeconfig returns the admin kubeconfig for the given cluster
+// GetAdminKubeconfig returns the admin kubeconfig for the given cluster. For internal use
+// by ourselves only.
 func (p *Provider) GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
 	s := &corev1.Secret{}
-	var err error
+	if err := p.seedClient.Get(context.Background(), types.NamespacedName{Namespace: c.Status.NamespaceName, Name: resources.InternalUserClusterAdminKubeconfigSecretName}, s); err != nil {
+		return nil, err
+	}
+	d := s.Data[resources.KubeconfigSecretKey]
+	if len(d) == 0 {
+		return nil, fmt.Errorf("no kubeconfig found")
+	}
+
 	if p.useExternalAddress {
-		// Load the admin kubeconfig secret, it uses the external apiserver address
-		err = p.seedClient.Get(context.Background(), types.NamespacedName{Namespace: c.Status.NamespaceName, Name: resources.AdminKubeconfigSecretName}, s)
-	} else {
-		// Load the internal admin kubeconfig secret
-		err = p.seedClient.Get(context.Background(), types.NamespacedName{Namespace: c.Status.NamespaceName, Name: resources.InternalUserClusterAdminKubeconfigSecretName}, s)
+		return setExternalAddress(c, d)
 	}
-	if err != nil {
-		return nil, err
-	}
-	d := s.Data[resources.KubeconfigSecretKey]
-	if len(d) == 0 {
-		return nil, fmt.Errorf("no kubeconfig found")
-	}
+
 	return d, nil
 }
 
-// GetViewerKubeconfig returns the viewer kubeconfig for the given cluster
-func (p *Provider) GetViewerKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
-	s := &corev1.Secret{}
-
-	if err := p.seedClient.Get(context.Background(), types.NamespacedName{Namespace: c.Status.NamespaceName, Name: resources.ViewerKubeconfigSecretName}, s); err != nil {
-		return nil, err
-	}
-
-	d := s.Data[resources.KubeconfigSecretKey]
-	if len(d) == 0 {
-		return nil, fmt.Errorf("no kubeconfig found")
-	}
-	return d, nil
-}
-
-// RevokeViewerKubeconfig deletes viewer token to deploy new one and regenerate viewer-kubeconfig
-func (p *Provider) RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error {
-	s := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.ViewerTokenSecretName,
-			Namespace: c.Status.NamespaceName,
-		},
-	}
-
-	if err := p.seedClient.Delete(context.Background(), s); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (p *Provider) RevokeAdminKubeconfig(c *kubermaticv1.Cluster) error {
-	isOpenshift := c.Annotations["kubermatic.io/openshift"] != ""
-	ctx := context.Background()
-	if !isOpenshift {
-		oldCluster := c.DeepCopy()
-		c.Address.AdminToken = kuberneteshelper.GenerateToken()
-		if err := p.seedClient.Patch(ctx, c, ctrlruntimeclient.MergeFrom(oldCluster)); err != nil {
-			return fmt.Errorf("failed to patch cluster with new token: %v", err)
-		}
-		return nil
-	}
-	userClusterClient, err := p.GetClient(c)
+func setExternalAddress(c *kubermaticv1.Cluster, config []byte) ([]byte, error) {
+	cfg, err := clientcmd.Load(config)
 	if err != nil {
-		return fmt.Errorf("failed to get usercluster client: %v", err)
+		return nil, fmt.Errorf("failed to load kubeconfig: %v", err)
 	}
-	serviceAccount := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceSystem,
-			Name:      openshiftuserclusterresources.TokenOwnerServiceAccountName,
-		},
+	for _, cluster := range cfg.Clusters {
+		cluster.Server = c.Address.URL
 	}
-	if err := userClusterClient.Delete(ctx, serviceAccount); err != nil {
-		return fmt.Errorf("failed to remove the token owner: %v", err)
+	data, err := clientcmd.Write(*cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal kubeconfig: %v", err)
 	}
-	return nil
+
+	return data, nil
 }
 
 // ConfigOption defines a function that applies additional configuration to restclient.Config in a generic way.
@@ -142,6 +93,12 @@ func (p *Provider) GetClientConfig(c *kubermaticv1.Cluster, options ...ConfigOpt
 	cfg, err := clientcmd.Load(b)
 	if err != nil {
 		return nil, err
+	}
+
+	if p.useExternalAddress {
+		for _, cluster := range cfg.Clusters {
+			cluster.Server = c.Address.URL
+		}
 	}
 
 	iconfig := clientcmd.NewNonInteractiveClientConfig(
@@ -170,9 +127,6 @@ func (p *Provider) GetClientConfig(c *kubermaticv1.Cluster, options ...ConfigOpt
 
 // GetClient returns a dynamic client
 func (p *Provider) GetClient(c *kubermaticv1.Cluster, options ...ConfigOption) (ctrlruntimeclient.Client, error) {
-	if p.overrideGetClientFunc != nil {
-		return p.overrideGetClientFunc(c, options...)
-	}
 	config, err := p.GetClientConfig(c, options...)
 	if err != nil {
 		return nil, err

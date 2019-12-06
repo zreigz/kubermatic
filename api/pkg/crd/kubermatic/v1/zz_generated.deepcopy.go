@@ -428,13 +428,6 @@ func (in *Cluster) DeepCopyInto(out *Cluster) {
 	in.Spec.DeepCopyInto(&out.Spec)
 	out.Address = in.Address
 	in.Status.DeepCopyInto(&out.Status)
-	if in.InheritedLabels != nil {
-		in, out := &in.InheritedLabels, &out.InheritedLabels
-		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	return
 }
 
@@ -556,6 +549,13 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 	out.Version = in.Version.DeepCopy()
 	in.ComponentsOverride.DeepCopyInto(&out.ComponentsOverride)
 	out.OIDC = in.OIDC
+	if in.Features != nil {
+		in, out := &in.Features, &out.Features
+		*out = make(map[string]bool, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Openshift != nil {
 		in, out := &in.Openshift, &out.Openshift
 		*out = new(Openshift)
@@ -624,6 +624,13 @@ func (in *ClusterStatus) DeepCopyInto(out *ClusterStatus) {
 		*out = make([]ClusterCondition, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.InheritedLabels != nil {
+		in, out := &in.InheritedLabels, &out.InheritedLabels
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
 		}
 	}
 	return

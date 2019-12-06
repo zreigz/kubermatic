@@ -1,7 +1,6 @@
 package test
 
 import (
-	"context"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
@@ -25,7 +24,6 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
-	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/presets"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -125,6 +123,7 @@ type newRoutingFunc func(
 	seedsGetter provider.SeedsGetter,
 	clusterProviderGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
+	addonConfigProvider provider.AddonConfigProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -167,6 +166,7 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 	userProvider := kubernetes.NewUserProvider(kubermaticClient, userLister, kubernetes.IsServiceAccount)
 	adminProvider := kubernetes.NewAdminProvider(kubermaticClient, userLister)
 	settingsProvider := kubernetes.NewSettingsProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().KubermaticSettings().Lister())
+	addonConfigProvider := kubernetes.NewAddonConfigProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().AddonConfigs().Lister())
 	tokenGenerator, err := serviceaccount.JWTTokenGenerator([]byte(TestServiceAccountHashKey))
 	if err != nil {
 		return nil, nil, err
@@ -266,6 +266,7 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		seedsGetter,
 		clusterProviderGetter,
 		addonProviderGetter,
+		addonConfigProvider,
 		sshKeyProvider,
 		userProvider,
 		serviceAccountProvider,
@@ -390,21 +391,6 @@ func (f *fakeUserClusterConnection) GetClient(_ *kubermaticv1.Cluster, _ ...k8cu
 	return f.fakeDynamicClient, nil
 }
 
-func (f *fakeUserClusterConnection) GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
-	return []byte(generateTestKubeconfig(ClusterID, IDToken)), nil
-}
-
-func (f *fakeUserClusterConnection) GetViewerKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
-	return []byte(generateTestKubeconfig(ClusterID, IDViewerToken)), nil
-}
-func (f *fakeUserClusterConnection) RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error {
-	return nil
-}
-func (f *fakeUserClusterConnection) RevokeAdminKubeconfig(c *kubermaticv1.Cluster) error {
-	c.Address.AdminToken = kuberneteshelper.GenerateToken()
-	return f.fakeDynamicClient.Update(context.Background(), c)
-}
-
 // ClientsSets a simple wrapper that holds fake client sets
 type ClientsSets struct {
 	FakeKubermaticClient *kubermaticfakeclentset.Clientset
@@ -416,8 +402,8 @@ type ClientsSets struct {
 	TokenGenerator     serviceaccount.TokenGenerator
 }
 
-// generateTestKubeconfig returns test kubeconfig yaml structure
-func generateTestKubeconfig(clusterID, token string) string {
+// GenerateTestKubeconfig returns test kubeconfig yaml structure
+func GenerateTestKubeconfig(clusterID, token string) string {
 	return fmt.Sprintf(`
 apiVersion: v1
 clusters:
@@ -664,6 +650,7 @@ func GenCluster(id string, name string, projectID string, creationTime time.Time
 				UserClusterControllerManager: kubermaticv1.HealthStatusUp,
 				CloudProviderInfrastructure:  kubermaticv1.HealthStatusUp,
 			},
+			NamespaceName: "cluster-" + id,
 		},
 	}
 

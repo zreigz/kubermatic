@@ -117,6 +117,8 @@ const (
 	ControllerManagerKubeconfigSecretName = "controllermanager-kubeconfig"
 	//MachineControllerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the machinecontroller
 	MachineControllerKubeconfigSecretName = "machinecontroller-kubeconfig"
+	//CloudControllerManagerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the external cloud provider
+	CloudControllerManagerKubeconfigSecretName = "cloud-controller-manager-kubeconfig"
 	//MachineControllerWebhookServingCertSecretName is the name for the secret containing the serving cert for the
 	//machine-controller webhook
 	MachineControllerWebhookServingCertSecretName = "machinecontroller-webhook-serving-cert"
@@ -155,6 +157,8 @@ const (
 	OpenVPNServerCertificatesSecretName = "openvpn-server-certificates"
 	//OpenVPNClientCertificatesSecretName is the name for the secret containing the openvpn client certificates
 	OpenVPNClientCertificatesSecretName = "openvpn-client-certificates"
+	//CloudConfigSecretName is the name for the secret containing the cloud-config inside the user cluster.
+	CloudConfigSecretName = "cloud-config"
 	//EtcdTLSCertificateSecretName is the name for the secret containing the etcd tls certificate used for transport security
 	EtcdTLSCertificateSecretName = "etcd-tls-certificate"
 	//ApiserverEtcdClientCertificateSecretName is the name for the secret containing the client certificate used by the apiserver for authenticating against etcd
@@ -178,8 +182,10 @@ const (
 	// the Kubernetes Dashboard
 	KubernetesDashboardCsrfTokenSecretName = "kubernetes-dashboard-csrf"
 
-	//CloudConfigConfigMapName is the name for the configmap containing the cloud-config
+	// CloudConfigConfigMapName is the name for the configmap containing the cloud-config
 	CloudConfigConfigMapName = "cloud-config"
+	// CloudConfigConfigMapKey is the key under which the cloud-config in the cloud-config configmap can be found
+	CloudConfigConfigMapKey = "config"
 	//OpenVPNClientConfigsConfigMapName is the name for the ConfigMap containing the OpenVPN client config used within the user cluster
 	OpenVPNClientConfigsConfigMapName = "openvpn-client-configs"
 	//OpenVPNClientConfigConfigMapName is the name for the ConfigMap containing the OpenVPN client config used by the client inside the user cluster
@@ -200,6 +206,9 @@ const (
 	//PrometheusRoleBindingName is the name for the Prometheus rolebinding
 	PrometheusRoleBindingName = "prometheus"
 
+	//CloudControllerManagerRoleBindingName is the name for the cloud controller manager rolebinding.
+	CloudControllerManagerRoleBindingName = "cloud-controller-manager"
+
 	//MachineControllerCertUsername is the name of the user coming from kubeconfig cert
 	MachineControllerCertUsername = "machine-controller"
 	//KubeStateMetricsCertUsername is the name of the user coming from kubeconfig cert
@@ -208,6 +217,8 @@ const (
 	MetricsServerCertUsername = "metrics-server"
 	//ControllerManagerCertUsername is the name of the user coming from kubeconfig cert
 	ControllerManagerCertUsername = "system:kube-controller-manager"
+	//CloudControllerManagerCertUsername is the name of the user coming from kubeconfig cert
+	CloudControllerManagerCertUsername = "system:cloud-controller-manager"
 	//SchedulerCertUsername is the name of the user coming from kubeconfig cert
 	SchedulerCertUsername = "system:kube-scheduler"
 	//KubeletDnatControllerCertUsername is the name of the user coming from kubeconfig cert
@@ -320,16 +331,30 @@ const (
 	// InternalUserClusterAdminKubeconfigCertUsername is the name of the user coming from kubeconfig cert
 	InternalUserClusterAdminKubeconfigCertUsername = "kubermatic-controllers"
 
-	// DefaultKubermaticImage defines the default image which contains the Kubermatic applications
+	// DefaultKubermaticImage defines the default Docker repository containing the Kubermatic API image.
 	DefaultKubermaticImage = "quay.io/kubermatic/api"
 
-	// DefaultDNATControllerImage defines the default image containing the dnat controller
+	// DefaultDNATControllerImage defines the default Docker repository containing the DNAT controller image.
 	DefaultDNATControllerImage = "quay.io/kubermatic/kubeletdnat-controller"
+
+	// DefaultDashboardAddonImage defines the default Docker repository containing the dashboard image.
+	DefaultDashboardImage = "quay.io/kubermatic/ui-v2"
+
+	// DefaultKubernetesAddonImage defines the default Docker repository containing the Kubernetes addons.
+	DefaultKubernetesAddonImage = "quay.io/kubermatic/addons"
+
+	// DefaultOpenshiftAddonImage defines the default Docker repository containing the Openshift addons.
+	DefaultOpenshiftAddonImage = "quay.io/kubermatic/openshift-addons"
 
 	// IPVSProxyMode defines the ipvs kube-proxy mode.
 	IPVSProxyMode = "ipvs"
 	// IPTablesProxyMode defines the iptables kube-proxy mode.
 	IPTablesProxyMode = "iptables"
+
+	// Feature flags, maybe move inside own const block.
+
+	// FeatureNameExternalCloudProvider enables external cloud provider support.
+	FeatureNameExternalCloudProvider = "externalCloudProvider"
 )
 
 const (
@@ -401,6 +426,9 @@ const (
 	ServingCertSecretKey = "serving.crt"
 	// ServingCertKeySecretKey is the secret key for the key of a generic serving cert
 	ServingCertKeySecretKey = "serving.key"
+
+	// CloudConfigSecretKey is the secret key for cloud-config
+	CloudConfigSecretKey = "config"
 )
 
 const (

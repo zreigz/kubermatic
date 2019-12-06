@@ -17,15 +17,17 @@ import (
 	"github.com/oklog/run"
 	"go.uber.org/zap"
 
+	clusterrolelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/cluster-role-labeler"
 	containerlinux "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/container-linux"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/ipam"
 	nodelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/node-labeler"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/nodecsrapprover"
 	openshiftmasternodelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/openshift-master-node-labeler"
 	openshiftseedsyncer "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/openshift-seed-syncer"
-	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/rbac"
-	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources"
+	rbacusercluster "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/rbac"
+	usercluster "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources"
 	machinecontrolerresources "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/machine-controller"
+	rolecloner "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/role-cloner"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/pprof"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
@@ -33,7 +35,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -59,6 +60,7 @@ type controllerRunOptions struct {
 	cloudCredentialSecretTemplate string
 	nodelabels                    string
 	seedKubeconfig                string
+	openshiftConsoleCallbackURI   string
 	log                           kubermaticlog.Options
 }
 
@@ -82,6 +84,7 @@ func main() {
 	flag.StringVar(&runOp.cloudCredentialSecretTemplate, "cloud-credential-secret-template", "", "A serialized Kubernetes secret whose Name and Data fields will be used to create a secret for the openshift cloud credentials operator.")
 	flag.StringVar(&runOp.nodelabels, "node-labels", "", "A json-encoded map of node labels. If set, those labels will be enforced on all nodes.")
 	flag.StringVar(&runOp.seedKubeconfig, "seed-kubeconfig", "", "Path to the seed kubeconfig. In-Cluster config will be used if unset")
+	flag.StringVar(&runOp.openshiftConsoleCallbackURI, "openshift-console-callback-uri", "", "The callback uri for the openshift console")
 
 	flag.Parse()
 
@@ -184,34 +187,6 @@ func main() {
 
 	// Setup all Controllers
 	log.Info("registering controllers")
-	if runOp.openshift {
-		// We create watches for these, hence they have to exist. They are created by the addon
-		// controller which needs the kubeconfig we create.
-		infrastructureCRD := &apiextensionsv1beta1.CustomResourceDefinition{}
-		infrastructureCRD.Name = "infrastructures.config.openshift.io"
-		infrastructureCRD.Spec.Group = "config.openshift.io"
-		infrastructureCRD.Spec.Names.Kind = "Infrastructure"
-		infrastructureCRD.Spec.Names.ListKind = "InfrastructureList"
-		infrastructureCRD.Spec.Names.Plural = "infrastructures"
-		infrastructureCRD.Spec.Names.Singular = "infrastructure"
-		infrastructureCRD.Spec.Scope = apiextensionsv1beta1.ClusterScoped
-		infrastructureCRD.Spec.Version = "v1"
-		if err := mgr.GetClient().Create(context.Background(), infrastructureCRD); err != nil && !kerrors.IsAlreadyExists(err) {
-			log.Fatalw("Failed to create infrastructure CRD", zap.Error(err))
-		}
-		clusterVersionCRD := &apiextensionsv1beta1.CustomResourceDefinition{}
-		clusterVersionCRD.Name = "clusterversions.config.openshift.io"
-		clusterVersionCRD.Spec.Group = "config.openshift.io"
-		clusterVersionCRD.Spec.Names.Kind = "ClusterVersion"
-		clusterVersionCRD.Spec.Names.ListKind = "ClusterVersionList"
-		clusterVersionCRD.Spec.Names.Plural = "clusterversions"
-		clusterVersionCRD.Spec.Names.Singular = "clusterversion"
-		clusterVersionCRD.Spec.Scope = apiextensionsv1beta1.ClusterScoped
-		clusterVersionCRD.Spec.Version = "v1"
-		if err := mgr.GetClient().Create(context.Background(), clusterVersionCRD); err != nil && !kerrors.IsAlreadyExists(err) {
-			log.Fatalw("Failed to create clusterVersion CRD", zap.Error(err))
-		}
-	}
 	if err := usercluster.Add(mgr,
 		seedMgr,
 		runOp.openshift,
@@ -222,7 +197,9 @@ func main() {
 		runOp.openvpnServerPort,
 		healthHandler.AddReadinessCheck,
 		cloudCredentialSecretTemplate,
-		log); err != nil {
+		runOp.openshiftConsoleCallbackURI,
+		log,
+	); err != nil {
 		log.Fatalw("Failed to register user cluster controller", zap.Error(err))
 	}
 	log.Info("Registered usercluster controller")
@@ -262,6 +239,7 @@ func main() {
 			log.Fatalw("Failed to add openshiftmasternodelabeler controller", zap.Error(err))
 		}
 		log.Info("Registered nodecsrapprover controller")
+
 		if err := openshiftseedsyncer.Add(log, mgr, seedMgr, runOp.clusterURL, runOp.namespace); err != nil {
 			log.Fatalw("Failed to register the openshiftseedsyncer", zap.Error(err))
 		}
@@ -277,6 +255,16 @@ func main() {
 		log.Fatalw("Failed to register nodelabel controller", zap.Error(err))
 	}
 	log.Info("Registered nodelabel controller")
+
+	if err := clusterrolelabeler.Add(ctx, log, mgr); err != nil {
+		log.Fatalw("Failed to register clusterrolelabeler controller", zap.Error(err))
+	}
+	log.Info("Registered clusterrolelabeler controller")
+
+	if err := rolecloner.Add(ctx, log, mgr); err != nil {
+		log.Fatalw("Failed to register rolecloner controller", zap.Error(err))
+	}
+	log.Info("Registered rolecloner controller")
 
 	// This group is forever waiting in a goroutine for signals to stop
 	{

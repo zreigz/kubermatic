@@ -99,7 +99,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", "10.254.0.0/16", "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
 	flag.StringVar(&c.kubernetesAddonsPath, "kubernetes-addons-path", "/opt/addons/kubernetes", "Path to addon manifests. Should contain sub-folders for each addon")
 	flag.StringVar(&c.openshiftAddonsPath, "openshift-addons-path", "/opt/addons/openshift", "Path to addon manifests. Should contain sub-folders for each addon")
-	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter,nodelocal-dns-cache", "Comma separated list of Addons to install into every user-cluster")
+	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,csi,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter,nodelocal-dns-cache", "Comma separated list of Addons to install into every user-cluster")
 	flag.StringVar(&c.openshiftAddonsList, "openshift-addons-list", "openvpn,rbac,crd,network,default-storage-class,registry", "Comma separated list of addons to install into every openshift user cluster")
 	flag.StringVar(&c.backupContainerFile, "backup-container", "", fmt.Sprintf("[Required] Filepath of a backup container yaml. It must mount a volume named %s from which it reads the etcd backups", backupcontroller.SharedVolumeName))
 	flag.StringVar(&c.cleanupContainerFile, "cleanup-container", "", "[Required] Filepath of a cleanup container yaml. The container will be used to cleanup the backup directory for a cluster after it got deleted.")
@@ -152,9 +152,9 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 
 func (o controllerRunOptions) validate() error {
 
-	if o.featureGates.Enabled(OpenIDAuthPlugin) {
+	if o.featureGates.Enabled(features.OpenIDAuthPlugin) {
 		if len(o.oidcIssuerURL) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-url\" flag was not specified", OpenIDAuthPlugin)
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-url\" flag was not specified", features.OpenIDAuthPlugin)
 		}
 
 		if _, err := url.Parse(o.oidcIssuerURL); err != nil {
@@ -162,11 +162,11 @@ func (o controllerRunOptions) validate() error {
 		}
 
 		if len(o.oidcIssuerClientID) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", OpenIDAuthPlugin)
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", features.OpenIDAuthPlugin)
 		}
 
 		if len(o.oidcIssuerClientSecret) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-secret\" flag was not specified", OpenIDAuthPlugin)
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-secret\" flag was not specified", features.OpenIDAuthPlugin)
 		}
 	}
 

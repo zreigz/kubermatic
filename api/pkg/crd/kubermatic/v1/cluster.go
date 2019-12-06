@@ -48,10 +48,9 @@ type Cluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec            ClusterSpec       `json:"spec"`
-	Address         ClusterAddress    `json:"address,omitempty"`
-	Status          ClusterStatus     `json:"status,omitempty"`
-	InheritedLabels map[string]string `json:"inheritedLabels"`
+	Spec    ClusterSpec    `json:"spec"`
+	Address ClusterAddress `json:"address,omitempty"`
+	Status  ClusterStatus  `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -93,6 +92,9 @@ type ClusterSpec struct {
 
 	OIDC OIDCSettings `json:"oidc,omitempty"`
 
+	// Feature flags
+	Features map[string]bool `json:"features"`
+
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`
 
@@ -107,7 +109,7 @@ type ClusterSpec struct {
 type ClusterConditionType string
 
 const (
-	// ClusterConditionSeedResourcesUpToDate indicates that alle controllers have finished setting up the
+	// ClusterConditionSeedResourcesUpToDate indicates that all controllers have finished setting up the
 	// resources for a user clusters that run inside the seed cluster, i.e. this ignores
 	// the status of cloud provider resources for a given cluster.
 	ClusterConditionSeedResourcesUpToDate ClusterConditionType = "SeedResourcesUpToDate"
@@ -121,9 +123,10 @@ const (
 	ClusterConditionUpdateControllerReconcilingSuccess         ClusterConditionType = "UpdateControllerReconciledSuccessfully"
 	ClusterConditionMonitoringControllerReconcilingSuccess     ClusterConditionType = "MonitoringControllerReconciledSuccessfully"
 	ClusterConditionOpenshiftControllerReconcilingSuccess      ClusterConditionType = "OpenshiftControllerReconciledSuccessfully"
+	ClusterConditionClusterInitialized                         ClusterConditionType = "ClusterInitialized"
 
 	ReasonClusterUpdateSuccessful = "ClusterUpdateSuccessful"
-	ReasonClusterUpadteInProgress = "ClusterUpdateInProgress"
+	ReasonClusterUpdateInProgress = "ClusterUpdateInProgress"
 )
 
 var AllClusterConditionTypes = []ClusterConditionType{
@@ -197,6 +200,9 @@ type ClusterStatus struct {
 	// CloudMigrationRevision describes the latest version of the migration that has been done
 	// It is used to avoid redundant and potentially costly migrations
 	CloudMigrationRevision int `json:"cloudMigrationRevision"`
+
+	// InheritedLabels are labels the cluster inherited from the project. They are read-only for users.
+	InheritedLabels map[string]string `json:"inheritedLabels,omitempty"`
 }
 
 // HasConditionValue returns true if the cluster status has the given condition with the given status.
@@ -304,6 +310,8 @@ type ClusterAddress struct {
 	AdminToken string `json:"adminToken"`
 	// IP is the external IP under which the apiserver is available
 	IP string `json:"ip"`
+	// OpenshiftConsoleCallBack is the callback address for the Openshift console
+	OpenshiftConsoleCallBack string `json:"openshiftConsoleCallback,omitempty"`
 }
 
 // CloudSpec mutually stores access data to a cloud provider.
@@ -569,4 +577,12 @@ func (cluster *Cluster) GetSecretName() string {
 		return fmt.Sprintf("%s-vsphere-%s", CredentialPrefix, cluster.Name)
 	}
 	return ""
+}
+
+func (cluster *Cluster) IsOpenshift() bool {
+	return cluster.Annotations["kubermatic.io/openshift"] != ""
+}
+
+func (cluster *Cluster) IsKubernetes() bool {
+	return !cluster.IsOpenshift()
 }

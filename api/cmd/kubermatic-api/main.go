@@ -37,6 +37,7 @@ import (
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/features"
 	"github.com/kubermatic/kubermatic/api/pkg/handler"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -171,7 +172,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	}
 
 	seedClientGetter := provider.SeedClientGetterFactory(seedKubeconfigGetter)
-	clusterProviderGetter := clusterProviderFactory(seedKubeconfigGetter, seedClientGetter, options.workerName, options.featureGates.Enabled(OIDCKubeCfgEndpoint))
+	clusterProviderGetter := clusterProviderFactory(seedKubeconfigGetter, seedClientGetter, options.workerName, options.featureGates.Enabled(features.OIDCKubeCfgEndpoint))
 
 	// Warm up the restMapper cache. Log but ignore errors encountered here, maybe there are stale seeds
 	go func() {
@@ -192,6 +193,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
 	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, userMasterLister, kubernetesprovider.IsServiceAccount)
 	settingsProvider := kubernetesprovider.NewSettingsProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().KubermaticSettings().Lister())
+	addonConfigProvider := kubernetesprovider.NewAddonConfigProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().AddonConfigs().Lister())
 	adminProvider := kubernetesprovider.NewAdminProvider(kubermaticMasterClient, userMasterLister)
 
 	serviceAccountTokenProvider, err := kubernetesprovider.NewServiceAccountTokenProvider(defaultKubernetesImpersonationClient.CreateImpersonatedKubernetesClientSet, kubeMasterInformerFactory.Core().V1().Secrets().Lister())
@@ -239,6 +241,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		clusterProviderGetter:                 clusterProviderGetter,
 		seedsGetter:                           seedsGetter,
 		addons:                                addonProviderGetter,
+		addonConfigProvider:                   addonConfigProvider,
 		userInfoGetter:                        userInfoGetter,
 		settingsProvider:                      settingsProvider,
 		adminProvider:                         adminProvider}, nil
@@ -289,7 +292,7 @@ func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVeri
 
 func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, presetsManager common.PresetsManager) (http.HandlerFunc, error) {
 	var prometheusClient prometheusapi.Client
-	if options.featureGates.Enabled(PrometheusEndpoint) {
+	if options.featureGates.Enabled(features.PrometheusEndpoint) {
 		var err error
 		if prometheusClient, err = prometheusapi.NewClient(prometheusapi.Config{
 			Address: options.prometheusURL,
@@ -309,6 +312,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prov.seedsGetter,
 		prov.clusterProviderGetter,
 		prov.addons,
+		prov.addonConfigProvider,
 		prov.sshKey,
 		prov.user,
 		prov.serviceAccountProvider,
@@ -341,7 +345,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 	r.RegisterV1(v1Router, metrics)
 	r.RegisterV1Legacy(v1Router)
 	r.RegisterV1Optional(v1Router,
-		options.featureGates.Enabled(OIDCKubeCfgEndpoint),
+		options.featureGates.Enabled(features.OIDCKubeCfgEndpoint),
 		common.OIDCConfiguration{
 			URL:                  options.oidcURL,
 			ClientID:             options.oidcIssuerClientID,

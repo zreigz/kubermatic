@@ -38,6 +38,7 @@ type Reconciler struct {
 	seedRecorders  map[string]record.EventRecorder
 	seedsGetter    provider.SeedsGetter
 	workerName     string
+	versions       common.Versions
 }
 
 // Reconcile acts upon requests and will restore the state of resources
@@ -101,6 +102,12 @@ func (r *Reconciler) reconcile(log *zap.SugaredLogger, seedName string) error {
 
 	config := configList.Items[0]
 
+	// create a copy of the configuration with default values applied
+	defaulted, err := common.DefaultConfiguration(&config, log)
+	if err != nil {
+		return fmt.Errorf("failed to apply defaults to KubermaticConfiguration: %v", err)
+	}
+
 	// As the Seed CR is the owner for all resources managed by this controller,
 	// we wait for the seed-sync controller to do its job and mirror the Seed CR
 	// into the seed cluster.
@@ -124,7 +131,7 @@ func (r *Reconciler) reconcile(log *zap.SugaredLogger, seedName string) error {
 	}
 
 	// make sure to use the seedCopy so the owner ref has the correct UID
-	if err := r.reconcileResources(&config, seedCopy, seedClient, log); err != nil {
+	if err := r.reconcileResources(defaulted, seedCopy, seedClient, log); err != nil {
 		r.masterRecorder.Event(&config, corev1.EventTypeWarning, "SeedReconcilingError", fmt.Sprintf("%s: %v", seedName, err))
 		r.masterRecorder.Event(seed, corev1.EventTypeWarning, "ReconcilingError", err.Error())
 		seedRecorder.Event(seedCopy, corev1.EventTypeWarning, "ReconcilingError", err.Error())
@@ -135,6 +142,10 @@ func (r *Reconciler) reconcile(log *zap.SugaredLogger, seedName string) error {
 }
 
 func (r *Reconciler) reconcileResources(cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed, client ctrlruntimeclient.Client, log *zap.SugaredLogger) error {
+	if err := r.reconcileNamespaces(cfg, seed, client, log); err != nil {
+		return err
+	}
+
 	if err := r.reconcileServiceAccounts(cfg, seed, client, log); err != nil {
 		return err
 	}
@@ -153,6 +164,28 @@ func (r *Reconciler) reconcileResources(cfg *operatorv1alpha1.KubermaticConfigur
 
 	if err := r.reconcileDeployments(cfg, seed, client, log); err != nil {
 		return err
+	}
+
+	if err := r.reconcileServices(cfg, seed, client, log); err != nil {
+		return err
+	}
+
+	if err := r.reconcileAdmissionWebhooks(cfg, seed, client, log); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Reconciler) reconcileNamespaces(cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed, client ctrlruntimeclient.Client, log *zap.SugaredLogger) error {
+	log.Debug("reconciling Namespaces")
+
+	creators := []reconciling.NamedNamespaceCreatorGetter{
+		common.NamespaceCreator(cfg),
+	}
+
+	if err := reconciling.ReconcileNamespaces(r.ctx, creators, "", client); err != nil {
+		return fmt.Errorf("failed to reconcile Namespaces: %v", err)
 	}
 
 	return nil
@@ -233,7 +266,7 @@ func (r *Reconciler) reconcileDeployments(cfg *operatorv1alpha1.KubermaticConfig
 	log.Debug("reconciling Deployments")
 
 	creators := []reconciling.NamedDeploymentCreatorGetter{
-		kubermatic.SeedControllerManagerDeploymentCreator(r.workerName, cfg, seed),
+		kubermatic.SeedControllerManagerDeploymentCreator(r.workerName, r.versions, cfg, seed),
 	}
 
 	modifiers := []reconciling.ObjectModifier{
@@ -243,6 +276,34 @@ func (r *Reconciler) reconcileDeployments(cfg *operatorv1alpha1.KubermaticConfig
 
 	if err := reconciling.ReconcileDeployments(r.ctx, creators, r.namespace, client, modifiers...); err != nil {
 		return fmt.Errorf("failed to reconcile Deployments: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) reconcileServices(cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed, client ctrlruntimeclient.Client, log *zap.SugaredLogger) error {
+	log.Debug("reconciling Services")
+
+	creators := []reconciling.NamedServiceCreatorGetter{
+		common.SeedAdmissionServiceCreator(cfg, client),
+	}
+
+	if err := reconciling.ReconcileServices(r.ctx, creators, cfg.Namespace, client, common.OwnershipModifierFactory(cfg, r.scheme)); err != nil {
+		return fmt.Errorf("failed to reconcile Services: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) reconcileAdmissionWebhooks(cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed, client ctrlruntimeclient.Client, log *zap.SugaredLogger) error {
+	log.Debug("reconciling AdmissionWebhooks")
+
+	creators := []reconciling.NamedValidatingWebhookConfigurationCreatorGetter{
+		common.SeedAdmissionWebhookCreator(cfg, client),
+	}
+
+	if err := reconciling.ReconcileValidatingWebhookConfigurations(r.ctx, creators, "", client); err != nil {
+		return fmt.Errorf("failed to reconcile AdmissionWebhooks: %v", err)
 	}
 
 	return nil

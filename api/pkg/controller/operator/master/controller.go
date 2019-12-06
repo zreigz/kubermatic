@@ -29,12 +29,6 @@ import (
 const (
 	// ControllerName is the name of this very controller.
 	ControllerName = "kubermatic-master-operator"
-
-	// NameLabel is the label containing the application's name.
-	NameLabel = "app.kubernetes.io/name"
-
-	// VersionLabel is the label containing the application's version.
-	VersionLabel = "app.kubernetes.io/version"
 )
 
 func Add(
@@ -52,6 +46,7 @@ func Add(
 		log:        log.Named(ControllerName),
 		workerName: workerName,
 		ctx:        ctx,
+		versions:   common.NewDefaultVersions(),
 	}
 
 	ctrlOptions := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: numWorkers}

@@ -30,6 +30,7 @@ type Reconciler struct {
 	scheme     *runtime.Scheme
 	workerName string
 	ctx        context.Context
+	versions   common.Versions
 }
 
 // Reconcile acts upon requests and will restore the state of resources
@@ -53,17 +54,13 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 
 	logger := r.log.With("config", identifier)
 
-	defaulted, err := r.defaultConfiguration(config, logger)
+	// create a copy of the configuration with default values applied
+	defaulted, err := common.DefaultConfiguration(config, logger)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to apply defaults: %v", err)
 	}
 
-	if defaulted {
-		logger.Info("Applied default values to configuration")
-		return reconcile.Result{}, err
-	}
-
-	err = r.reconcile(config, logger)
+	err = r.reconcile(defaulted, logger)
 	if err != nil {
 		r.recorder.Event(config, corev1.EventTypeWarning, "ReconcilingError", err.Error())
 	}
@@ -73,6 +70,10 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 
 func (r *Reconciler) reconcile(config *operatorv1alpha1.KubermaticConfiguration, logger *zap.SugaredLogger) error {
 	logger.Debug("Reconciling Kubermatic configuration")
+
+	if err := r.reconcileNamespaces(config, logger); err != nil {
+		return err
+	}
 
 	if err := r.reconcileServiceAccounts(config, logger); err != nil {
 		return err
@@ -110,6 +111,24 @@ func (r *Reconciler) reconcile(config *operatorv1alpha1.KubermaticConfiguration,
 		return err
 	}
 
+	if err := r.reconcileAdmissionWebhooks(config, logger); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Reconciler) reconcileNamespaces(config *operatorv1alpha1.KubermaticConfiguration, logger *zap.SugaredLogger) error {
+	logger.Debug("Reconciling Namespaces")
+
+	creators := []reconciling.NamedNamespaceCreatorGetter{
+		common.NamespaceCreator(config),
+	}
+
+	if err := reconciling.ReconcileNamespaces(r.ctx, creators, "", r.Client); err != nil {
+		return fmt.Errorf("failed to reconcile Namespaces: %v", err)
+	}
+
 	return nil
 }
 
@@ -135,14 +154,8 @@ func (r *Reconciler) reconcileSecrets(config *operatorv1alpha1.KubermaticConfigu
 		common.DexCASecretCreator(config),
 		common.SeedWebhookServingCASecretCreator(config),
 		common.SeedWebhookServingCertSecretCreator(config, r.Client),
-	}
-
-	if len(config.Spec.MasterFiles) > 0 {
-		creators = append(creators, common.MasterFilesSecretCreator(config))
-	}
-
-	if config.Spec.UI.Presets != "" {
-		creators = append(creators, kubermatic.PresetsSecretCreator(config))
+		common.MasterFilesSecretCreator(config),
+		kubermatic.PresetsSecretCreator(config),
 	}
 
 	if err := reconciling.ReconcileSecrets(r.ctx, creators, config.Namespace, r.Client, common.OwnershipModifierFactory(config, r.scheme)); err != nil {
@@ -184,9 +197,9 @@ func (r *Reconciler) reconcileDeployments(config *operatorv1alpha1.KubermaticCon
 	logger.Debug("Reconciling Deployments")
 
 	creators := []reconciling.NamedDeploymentCreatorGetter{
-		kubermatic.APIDeploymentCreator(config),
-		kubermatic.UIDeploymentCreator(config),
-		kubermatic.MasterControllerManagerDeploymentCreator(config, r.workerName),
+		kubermatic.APIDeploymentCreator(config, r.workerName, r.versions),
+		kubermatic.UIDeploymentCreator(config, r.versions),
+		kubermatic.MasterControllerManagerDeploymentCreator(config, r.workerName, r.versions),
 	}
 
 	modifiers := []reconciling.ObjectModifier{
@@ -223,6 +236,7 @@ func (r *Reconciler) reconcileServices(config *operatorv1alpha1.KubermaticConfig
 	creators := []reconciling.NamedServiceCreatorGetter{
 		kubermatic.APIServiceCreator(config),
 		kubermatic.UIServiceCreator(config),
+		common.SeedAdmissionServiceCreator(config, r.Client),
 	}
 
 	if err := reconciling.ReconcileServices(r.ctx, creators, config.Namespace, r.Client, common.OwnershipModifierFactory(config, r.scheme)); err != nil {
@@ -255,6 +269,20 @@ func (r *Reconciler) reconcileCertificates(config *operatorv1alpha1.KubermaticCo
 
 	if err := reconciling.ReconcileCertificates(r.ctx, creators, config.Namespace, r.Client, common.OwnershipModifierFactory(config, r.scheme)); err != nil {
 		return fmt.Errorf("failed to reconcile Certificates: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) reconcileAdmissionWebhooks(config *operatorv1alpha1.KubermaticConfiguration, logger *zap.SugaredLogger) error {
+	logger.Debug("Reconciling AdmissionWebhooks")
+
+	creators := []reconciling.NamedValidatingWebhookConfigurationCreatorGetter{
+		common.SeedAdmissionWebhookCreator(config, r.Client),
+	}
+
+	if err := reconciling.ReconcileValidatingWebhookConfigurations(r.ctx, creators, "", r.Client); err != nil {
+		return fmt.Errorf("failed to reconcile AdmissionWebhooks: %v", err)
 	}
 
 	return nil
