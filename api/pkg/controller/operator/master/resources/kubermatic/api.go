@@ -12,7 +12,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1beta1 "k8s.io/api/policy/v1beta1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
@@ -80,9 +79,9 @@ func APIDeploymentCreator(cfg *operatorv1alpha1.KubermaticConfiguration, workerN
 			}
 
 			if cfg.Spec.API.DebugLog {
-				args = append(args, "-v4", "-log-debug=true")
+				args = append(args, "-v=4", "-log-debug=true")
 			} else {
-				args = append(args, "-v2")
+				args = append(args, "-v=2")
 			}
 
 			if cfg.Spec.FeatureGates.Has(features.OIDCKubeCfgEndpoint) {
@@ -164,17 +163,8 @@ func APIDeploymentCreator(cfg *operatorv1alpha1.KubermaticConfiguration, workerN
 							Protocol:      corev1.ProtocolTCP,
 						},
 					},
-					VolumeMounts: volumeMounts,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("100m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("250m"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
+					VolumeMounts:   volumeMounts,
+					Resources:      cfg.Spec.API.Resources,
 					ReadinessProbe: &probe,
 				},
 			}

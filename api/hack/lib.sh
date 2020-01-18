@@ -1,3 +1,8 @@
+# Required for signal propagation to work so
+# the cleanup trap gets executed when a script
+# receives a SIGINT
+set -o monitor
+
 retry() {
   # Works only with bash but doesn't fail on other shells
   start_time=$(date +%s)
@@ -92,6 +97,16 @@ get_latest_dashboard_hash() {
   HASH="$(retry 5 git ls-remote "$DASHBOARD_URL" "refs/heads/$FOR_BRANCH" | awk '{print $1}')"
   echodate "The latest dashboard hash for $FOR_BRANCH is $HASH" >/dev/stderr
   echo "$HASH"
+}
+
+check_dashboard_tag() {
+  local TAG="$1"
+
+  ensure_github_host_pubkey
+  git config --global core.sshCommand 'ssh -o CheckHostIP=no -i /ssh/id_rsa'
+  local DASHBOARD_URL="git@github.com:kubermatic/dashboard-v2.git"
+
+  retry 5 git ls-remote "$DASHBOARD_URL" "refs/tags/$TAG"
 }
 
 format_dashboard() {

@@ -1,7 +1,6 @@
 package resources
 
 import (
-	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
-	"os"
 	"time"
 
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
@@ -36,6 +34,15 @@ var KUBERMATICCOMMIT string
 
 // KUBERMATICGITTAG is a magic variable containing the output of `git describe` for the current (as in currently executing) kubermatic api. It gets fed by Makefile as an ldflag.
 var KUBERMATICGITTAG = "manual_build"
+
+const (
+	RancherStatefulSetName              = "rancher-server"
+	RancherServerServiceAccountName     = "rancher-server-sa"
+	RancherServerClusterRoleBindingName = "rancher-server-crb"
+	RancherServerClusterRoleName        = "rancher-server-rb"
+	RancherServerServiceName            = "rancher-server-svc"
+	RancherServerIngressName            = "rancher-server-ingress"
+)
 
 const (
 	// ApiserverDeploymentName is the name of the apiserver deployment
@@ -350,11 +357,6 @@ const (
 	IPVSProxyMode = "ipvs"
 	// IPTablesProxyMode defines the iptables kube-proxy mode.
 	IPTablesProxyMode = "iptables"
-
-	// Feature flags, maybe move inside own const block.
-
-	// FeatureNameExternalCloudProvider enables external cloud provider support.
-	FeatureNameExternalCloudProvider = "externalCloudProvider"
 )
 
 const (
@@ -738,24 +740,12 @@ func getClusterCAFromLister(ctx context.Context, namespace, name string, client 
 
 // GetDexCAFromFile returns the Dex CA from the lister
 func GetDexCAFromFile(caBundleFilePath string) ([]*x509.Certificate, error) {
-
-	f, err := os.Open(caBundleFilePath)
+	rawData, err := ioutil.ReadFile(caBundleFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("got an invalid CA bundle file %v", err)
-	}
-	defer func() {
-		err := f.Close()
-		if err != nil {
-			klog.Fatal(err)
-		}
-	}()
-
-	bytes, err := ioutil.ReadAll(bufio.NewReader(f))
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read CA bundle file %q: %v", caBundleFilePath, err)
 	}
 
-	dexCACerts, err := certutil.ParseCertsPEM(bytes)
+	dexCACerts, err := certutil.ParseCertsPEM(rawData)
 	if err != nil {
 		return nil, fmt.Errorf("got an invalid cert: %v", err)
 	}

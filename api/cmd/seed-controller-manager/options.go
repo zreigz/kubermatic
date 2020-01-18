@@ -14,6 +14,7 @@ import (
 
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/backup"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/features"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -96,11 +97,11 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.IntVar(&c.workerCount, "worker-count", 4, "Number of workers which process the clusters in parallel.")
 	flag.StringVar(&c.overwriteRegistry, "overwrite-registry", "", "registry to use for all images")
 	flag.StringVar(&c.nodePortRange, "nodeport-range", "30000-32767", "NodePort range to use for new clusters. It must be within the NodePort range of the seed-cluster")
-	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", "10.254.0.0/16", "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
+	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", kubermaticv1.DefaultNodeAccessNetwork, "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
 	flag.StringVar(&c.kubernetesAddonsPath, "kubernetes-addons-path", "/opt/addons/kubernetes", "Path to addon manifests. Should contain sub-folders for each addon")
 	flag.StringVar(&c.openshiftAddonsPath, "openshift-addons-path", "/opt/addons/openshift", "Path to addon manifests. Should contain sub-folders for each addon")
-	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,csi,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter,nodelocal-dns-cache", "Comma separated list of Addons to install into every user-cluster")
-	flag.StringVar(&c.openshiftAddonsList, "openshift-addons-list", "openvpn,rbac,crd,network,default-storage-class,registry", "Comma separated list of addons to install into every openshift user cluster")
+	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,csi,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter,nodelocal-dns-cache,logrotate", "Comma separated list of Addons to install into every user-cluster")
+	flag.StringVar(&c.openshiftAddonsList, "openshift-addons-list", "openvpn,rbac,crd,network,default-storage-class,registry,logrotate", "Comma separated list of addons to install into every openshift user cluster")
 	flag.StringVar(&c.backupContainerFile, "backup-container", "", fmt.Sprintf("[Required] Filepath of a backup container yaml. It must mount a volume named %s from which it reads the etcd backups", backupcontroller.SharedVolumeName))
 	flag.StringVar(&c.cleanupContainerFile, "cleanup-container", "", "[Required] Filepath of a cleanup container yaml. The container will be used to cleanup the backup directory for a cluster after it got deleted.")
 	flag.StringVar(&c.backupContainerImage, "backup-container-init-image", backupcontroller.DefaultBackupContainerImage, "Docker image to use for the init container in the backup job, must be an etcd v3 image. Only set this if your cluster can not use the public quay.io registry")
@@ -191,7 +192,7 @@ func (o controllerRunOptions) validate() error {
 	}
 
 	if o.monitoringScrapeAnnotationPrefix == "" {
-		return fmt.Errorf("moniotring-scrape-annotation-prefix is undefined")
+		return fmt.Errorf("monitoring-scrape-annotation-prefix is undefined")
 	}
 
 	if o.apiServerDefaultReplicas < 1 {

@@ -11,7 +11,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1beta1 "k8s.io/api/policy/v1beta1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
@@ -68,9 +67,9 @@ func MasterControllerManagerDeploymentCreator(cfg *operatorv1alpha1.KubermaticCo
 			}
 
 			if cfg.Spec.MasterController.DebugLog {
-				args = append(args, "-v4", "-log-debug=true")
+				args = append(args, "-v=4", "-log-debug=true")
 			} else {
-				args = append(args, "-v2")
+				args = append(args, "-v=2")
 			}
 
 			if workerName != "" {
@@ -97,16 +96,7 @@ func MasterControllerManagerDeploymentCreator(cfg *operatorv1alpha1.KubermaticCo
 							ReadOnly:  true,
 						},
 					},
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("50m"),
-							corev1.ResourceMemory: resource.MustParse("128Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("100m"),
-							corev1.ResourceMemory: resource.MustParse("256Mi"),
-						},
-					},
+					Resources: cfg.Spec.MasterController.Resources,
 				},
 			}
 
