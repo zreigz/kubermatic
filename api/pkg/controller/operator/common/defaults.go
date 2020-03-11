@@ -17,14 +17,21 @@ import (
 )
 
 const (
-	defaultPProfEndpoint  = ":6600"
-	defaultNodePortRange  = "30000-32767"
-	defaultEtcdVolumeSize = "5Gi"
-	defaultAuthClientID   = "kubermatic"
+	DefaultPProfEndpoint               = ":6600"
+	DefaultNodePortRange               = "30000-32767"
+	DefaultEtcdVolumeSize              = "5Gi"
+	DefaultAuthClientID                = "kubermatic"
+	DefaultIngressClass                = "nginx"
+	DefaultAPIReplicas                 = 2
+	DefaultUIReplicas                  = 2
+	DefaultSeedControllerMgrReplicas   = 2
+	DefaultMasterControllerMgrReplicas = 2
+	DefaultAPIServerReplicas           = 2
+	DefaultExposeStrategy              = operatorv1alpha1.NodePortStrategy
 )
 
 var (
-	kubernetesDefaultAddons = []string{
+	KubernetesDefaultAddons = []string{
 		"canal",
 		"csi",
 		"dns",
@@ -33,23 +40,16 @@ var (
 		"rbac",
 		"kubelet-configmap",
 		"default-storage-class",
-		"node-exporter",
 		"nodelocal-dns-cache",
 		"pod-security-policy",
 		"logrotate",
 	}
 
-	openshiftDefaultAddons = []string{
-		"crd",
-		"openvpn",
-		"rbac",
-		"network",
-		"default-storage-class",
-		"registry",
-		"logrotate",
+	DefaultAccessibleAddons = []string{
+		"node-exporter",
 	}
 
-	defaultUIResources = corev1.ResourceRequirements{
+	DefaultUIResources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("100m"),
 			corev1.ResourceMemory: resource.MustParse("64Mi"),
@@ -60,7 +60,7 @@ var (
 		},
 	}
 
-	defaultAPIResources = corev1.ResourceRequirements{
+	DefaultAPIResources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("100m"),
 			corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -71,7 +71,7 @@ var (
 		},
 	}
 
-	defaultMasterControllerMgrResources = corev1.ResourceRequirements{
+	DefaultMasterControllerMgrResources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("50m"),
 			corev1.ResourceMemory: resource.MustParse("128Mi"),
@@ -82,7 +82,7 @@ var (
 		},
 	}
 
-	defaultSeedControllerMgrResources = corev1.ResourceRequirements{
+	DefaultSeedControllerMgrResources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("200m"),
 			corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -100,71 +100,101 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 	copy := config.DeepCopy()
 
 	if copy.Spec.ExposeStrategy == "" {
-		copy.Spec.ExposeStrategy = operatorv1alpha1.NodePortStrategy
+		copy.Spec.ExposeStrategy = DefaultExposeStrategy
 		logger.Debugw("Defaulting field", "field", "exposeStrategy", "value", copy.Spec.ExposeStrategy)
 	}
 
 	if copy.Spec.SeedController.BackupStoreContainer == "" {
-		copy.Spec.SeedController.BackupStoreContainer = strings.TrimSpace(defaultBackupStoreContainer)
+		copy.Spec.SeedController.BackupStoreContainer = strings.TrimSpace(DefaultBackupStoreContainer)
 		logger.Debugw("Defaulting field", "field", "seedController.backupStoreContainer")
 	}
 
 	if copy.Spec.SeedController.BackupCleanupContainer == "" {
-		copy.Spec.SeedController.BackupCleanupContainer = strings.TrimSpace(defaultBackupCleanupContainer)
+		copy.Spec.SeedController.BackupCleanupContainer = strings.TrimSpace(DefaultBackupCleanupContainer)
 		logger.Debugw("Defaulting field", "field", "seedController.backupCleanupContainer")
 	}
 
+	if copy.Spec.SeedController.Replicas == nil {
+		copy.Spec.SeedController.Replicas = pointer.Int32Ptr(DefaultSeedControllerMgrReplicas)
+		logger.Debugw("Defaulting field", "field", "seedController.replicas", "value", *copy.Spec.SeedController.Replicas)
+	}
+
 	if copy.Spec.API.PProfEndpoint == nil {
-		copy.Spec.API.PProfEndpoint = pointer.StringPtr(defaultPProfEndpoint)
+		copy.Spec.API.PProfEndpoint = pointer.StringPtr(DefaultPProfEndpoint)
 		logger.Debugw("Defaulting field", "field", "api.pprofEndpoint", "value", *copy.Spec.API.PProfEndpoint)
 	}
 
 	if copy.Spec.SeedController.PProfEndpoint == nil {
-		copy.Spec.SeedController.PProfEndpoint = pointer.StringPtr(defaultPProfEndpoint)
+		copy.Spec.SeedController.PProfEndpoint = pointer.StringPtr(DefaultPProfEndpoint)
 		logger.Debugw("Defaulting field", "field", "seedController.pprofEndpoint", "value", *copy.Spec.SeedController.PProfEndpoint)
 	}
 
 	if copy.Spec.MasterController.PProfEndpoint == nil {
-		copy.Spec.MasterController.PProfEndpoint = pointer.StringPtr(defaultPProfEndpoint)
+		copy.Spec.MasterController.PProfEndpoint = pointer.StringPtr(DefaultPProfEndpoint)
 		logger.Debugw("Defaulting field", "field", "masterController.pprofEndpoint", "value", *copy.Spec.MasterController.PProfEndpoint)
 	}
 
-	if len(copy.Spec.UserCluster.Addons.Kubernetes.Default) == 0 {
-		copy.Spec.UserCluster.Addons.Kubernetes.Default = kubernetesDefaultAddons
+	if copy.Spec.MasterController.Replicas == nil {
+		copy.Spec.MasterController.Replicas = pointer.Int32Ptr(DefaultMasterControllerMgrReplicas)
+		logger.Debugw("Defaulting field", "field", "masterController.replicas", "value", *copy.Spec.MasterController.Replicas)
+	}
+
+	if len(copy.Spec.UserCluster.Addons.Kubernetes.Default) == 0 && copy.Spec.UserCluster.Addons.Kubernetes.DefaultManifests == "" {
+		copy.Spec.UserCluster.Addons.Kubernetes.Default = KubernetesDefaultAddons
 		logger.Debugw("Defaulting field", "field", "userCluster.addons.kubernetes.default", "value", copy.Spec.UserCluster.Addons.Kubernetes.Default)
 	}
 
-	if len(copy.Spec.UserCluster.Addons.Openshift.Default) == 0 {
-		copy.Spec.UserCluster.Addons.Openshift.Default = openshiftDefaultAddons
-		logger.Debugw("Defaulting field", "field", "userCluster.addons.openshift.default", "value", copy.Spec.UserCluster.Addons.Openshift.Default)
+	if len(copy.Spec.UserCluster.Addons.Openshift.Default) == 0 && copy.Spec.UserCluster.Addons.Openshift.DefaultManifests == "" {
+		copy.Spec.UserCluster.Addons.Openshift.DefaultManifests = strings.TrimSpace(DefaultOpenshiftAddons)
+		logger.Debugw("Defaulting field", "field", "userCluster.Addons.Openshift.DefaultManifests")
+	}
+
+	if copy.Spec.UserCluster.APIServerReplicas == nil {
+		copy.Spec.UserCluster.APIServerReplicas = pointer.Int32Ptr(DefaultAPIServerReplicas)
+		logger.Debugw("Defaulting field", "field", "userCluster.apiserverReplicas", "value", *copy.Spec.UserCluster.APIServerReplicas)
+	}
+
+	if len(copy.Spec.API.AccessibleAddons) == 0 {
+		copy.Spec.API.AccessibleAddons = DefaultAccessibleAddons
+		logger.Debugw("Defaulting field", "field", "api.accessibleAddons", "value", copy.Spec.API.AccessibleAddons)
+	}
+
+	if copy.Spec.API.Replicas == nil {
+		copy.Spec.API.Replicas = pointer.Int32Ptr(DefaultAPIReplicas)
+		logger.Debugw("Defaulting field", "field", "api.replicas", "value", *copy.Spec.API.Replicas)
 	}
 
 	if copy.Spec.UserCluster.NodePortRange == "" {
-		copy.Spec.UserCluster.NodePortRange = defaultNodePortRange
+		copy.Spec.UserCluster.NodePortRange = DefaultNodePortRange
 		logger.Debugw("Defaulting field", "field", "userCluster.nodePortRange", "value", copy.Spec.UserCluster.NodePortRange)
 	}
 
 	if copy.Spec.UserCluster.EtcdVolumeSize == "" {
-		copy.Spec.UserCluster.EtcdVolumeSize = defaultEtcdVolumeSize
+		copy.Spec.UserCluster.EtcdVolumeSize = DefaultEtcdVolumeSize
 		logger.Debugw("Defaulting field", "field", "userCluster.etcdVolumeSize", "value", copy.Spec.UserCluster.EtcdVolumeSize)
+	}
+
+	if copy.Spec.Ingress.ClassName == "" {
+		copy.Spec.Ingress.ClassName = DefaultIngressClass
+		logger.Debugw("Defaulting field", "field", "ingress.className", "value", copy.Spec.Ingress.ClassName)
 	}
 
 	// cert-manager's default is Issuer, but since we do not create an Issuer,
 	// it does not make sense to force to change the configuration for the
 	// default case
-	if copy.Spec.CertificateIssuer.Kind == "" {
-		copy.Spec.CertificateIssuer.Kind = certmanagerv1alpha2.ClusterIssuerKind
-		logger.Debugw("Defaulting field", "field", "certificateIssuer.kind", "value", copy.Spec.CertificateIssuer.Kind)
+	if copy.Spec.Ingress.CertificateIssuer.Kind == "" {
+		copy.Spec.Ingress.CertificateIssuer.Kind = certmanagerv1alpha2.ClusterIssuerKind
+		logger.Debugw("Defaulting field", "field", "ingress.certificateIssuer.kind", "value", copy.Spec.Ingress.CertificateIssuer.Kind)
 	}
 
 	if copy.Spec.UI.Config == "" {
-		copy.Spec.UI.Config = strings.TrimSpace(defaultUIConfig)
+		copy.Spec.UI.Config = strings.TrimSpace(DefaultUIConfig)
 		logger.Debugw("Defaulting field", "field", "ui.config", "value", copy.Spec.UI.Config)
 	}
 
-	if copy.Spec.UI.Presets == "" {
-		copy.Spec.UI.Presets = strings.TrimSpace(defaultUIPresets)
-		logger.Debugw("Defaulting field", "field", "ui.presets", "value", copy.Spec.UI.Presets)
+	if copy.Spec.UI.Replicas == nil {
+		copy.Spec.UI.Replicas = pointer.Int32Ptr(DefaultUIReplicas)
+		logger.Debugw("Defaulting field", "field", "ui.replicas", "value", *copy.Spec.UI.Replicas)
 	}
 
 	if copy.Spec.MasterFiles == nil {
@@ -172,19 +202,19 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 	}
 
 	if copy.Spec.MasterFiles["versions.yaml"] == "" {
-		copy.Spec.MasterFiles["versions.yaml"] = strings.TrimSpace(defaultVersionsYAML)
+		copy.Spec.MasterFiles["versions.yaml"] = strings.TrimSpace(DefaultVersionsYAML)
 		logger.Debugw("Defaulting field", "field", "masterFiles.'versions.yaml'")
 	}
 
 	if copy.Spec.MasterFiles["updates.yaml"] == "" {
-		copy.Spec.MasterFiles["updates.yaml"] = strings.TrimSpace(defaultUpdatesYAML)
+		copy.Spec.MasterFiles["updates.yaml"] = strings.TrimSpace(DefaultUpdatesYAML)
 		logger.Debugw("Defaulting field", "field", "masterFiles.'updates.yaml'")
 	}
 
 	auth := copy.Spec.Auth
 
 	if auth.ClientID == "" {
-		auth.ClientID = defaultAuthClientID
+		auth.ClientID = DefaultAuthClientID
 		logger.Debugw("Defaulting field", "field", "auth.clientID", "value", auth.ClientID)
 	}
 
@@ -193,13 +223,13 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 		logger.Debugw("Defaulting field", "field", "auth.issuerClientID", "value", auth.IssuerClientID)
 	}
 
-	if auth.TokenIssuer == "" && copy.Spec.Domain != "" {
-		auth.TokenIssuer = fmt.Sprintf("https://%s/dex", copy.Spec.Domain)
+	if auth.TokenIssuer == "" && copy.Spec.Ingress.Domain != "" {
+		auth.TokenIssuer = fmt.Sprintf("https://%s/dex", copy.Spec.Ingress.Domain)
 		logger.Debugw("Defaulting field", "field", "auth.tokenIssuer", "value", auth.TokenIssuer)
 	}
 
-	if auth.IssuerRedirectURL == "" && copy.Spec.Domain != "" {
-		auth.IssuerRedirectURL = fmt.Sprintf("https://%s/api/v1/kubeconfig", copy.Spec.Domain)
+	if auth.IssuerRedirectURL == "" && copy.Spec.Ingress.Domain != "" {
+		auth.IssuerRedirectURL = fmt.Sprintf("https://%s/api/v1/kubeconfig", copy.Spec.Ingress.Domain)
 		logger.Debugw("Defaulting field", "field", "auth.issuerRedirectURL", "value", auth.IssuerRedirectURL)
 	}
 
@@ -237,19 +267,19 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 		return copy, err
 	}
 
-	if err := defaultResources(&copy.Spec.UI.Resources, defaultUIResources, "ui.resources", logger); err != nil {
+	if err := defaultResources(&copy.Spec.UI.Resources, DefaultUIResources, "ui.resources", logger); err != nil {
 		return copy, err
 	}
 
-	if err := defaultResources(&copy.Spec.API.Resources, defaultAPIResources, "api.resources", logger); err != nil {
+	if err := defaultResources(&copy.Spec.API.Resources, DefaultAPIResources, "api.resources", logger); err != nil {
 		return copy, err
 	}
 
-	if err := defaultResources(&copy.Spec.SeedController.Resources, defaultSeedControllerMgrResources, "seedController.resources", logger); err != nil {
+	if err := defaultResources(&copy.Spec.SeedController.Resources, DefaultSeedControllerMgrResources, "seedController.resources", logger); err != nil {
 		return copy, err
 	}
 
-	if err := defaultResources(&copy.Spec.MasterController.Resources, defaultMasterControllerMgrResources, "masterController.resources", logger); err != nil {
+	if err := defaultResources(&copy.Spec.MasterController.Resources, DefaultMasterControllerMgrResources, "masterController.resources", logger); err != nil {
 		return copy, err
 	}
 
@@ -308,7 +338,7 @@ func defaultResourceList(list *corev1.ResourceList, defaults corev1.ResourceList
 	return nil
 }
 
-const defaultBackupStoreContainer = `
+const DefaultBackupStoreContainer = `
 name: store-container
 image: quay.io/kubermatic/s3-storer:v0.1.4
 command:
@@ -334,7 +364,7 @@ volumeMounts:
   mountPath: /backup
 `
 
-const defaultBackupCleanupContainer = `
+const DefaultBackupCleanupContainer = `
 name: cleanup-container
 image: quay.io/kubermatic/s3-storer:v0.1.4
 command:
@@ -356,17 +386,12 @@ env:
       key: SECRET_ACCESS_KEY
 `
 
-const defaultUIConfig = `
+const DefaultUIConfig = `
 {
   "share_kubeconfig": false
 }`
 
-const defaultUIPresets = `
-presets:
-  items: []
-`
-
-const defaultVersionsYAML = `
+const DefaultVersionsYAML = `
 versions:
 # Kubernetes 1.14
 - version: "v1.14.8"
@@ -384,7 +409,7 @@ versions:
 - version: "v1.16.3"
   default: false
 # Kubernetes 1.17
-- version: "v1.17.0-rc.1"
+- version: "v1.17.0"
   default: false
 # OpenShift 4.1.9
 - version: "v4.1.9"
@@ -396,7 +421,7 @@ versions:
   type: "openshift"
 `
 
-const defaultUpdatesYAML = `
+const DefaultUpdatesYAML = `
 ### Updates file
 #
 # Contains a list of allowed updated
@@ -494,4 +519,48 @@ updates:
   to: 2.2.*
   automatic: false
   type: openshift
+`
+
+const DefaultOpenshiftAddons = `
+apiVersion: v1
+kind: List
+items:
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: crd
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: default-storage-class
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: logrotate
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: network
+  spec:
+    requiredResourceTypes:
+    - Group: config.openshift.io
+      Kind: Network
+      Version: v1
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: openvpn
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: rbac
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: registry
+  spec:
+    requiredResourceTypes:
+    - Group: cloudcredential.openshift.io
+      Kind: CredentialsRequest
+      Version: v1
 `

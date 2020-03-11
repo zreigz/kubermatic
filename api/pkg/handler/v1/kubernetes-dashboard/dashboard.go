@@ -32,11 +32,23 @@ func ProxyEndpoint(
 	extractor transporthttp.RequestFunc,
 	projectProvider provider.ProjectProvider,
 	userInfoGetter provider.UserInfoGetter,
+	settingsProvider provider.SettingsProvider,
 	middlewares endpoint.Middleware) http.Handler {
 	return dynamicHTTPHandler(func(w http.ResponseWriter, r *http.Request) {
-
 		log := log.With("endpoint", "kubernetes-dashboard-proxy", "uri", r.URL.Path)
 		ctx := extractor(r.Context(), r)
+
+		settings, err := settingsProvider.GetGlobalSettings()
+		if err != nil {
+			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusInternalServerError, "could not read global settings"))
+			return
+		}
+
+		if !settings.Spec.EnableDashboard {
+			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusForbidden, "Kubernetes Dashboard access is disabled by the global settings"))
+			return
+		}
+
 		request, err := common.DecodeGetClusterReq(ctx, r)
 		if err != nil {
 			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, err.Error()))
@@ -77,7 +89,7 @@ func ProxyEndpoint(
 			log = log.With("cluster", userCluster.Name)
 
 			// Ideally we would cache these to not open a port for every single request
-			portforwarder, outBuffer, err := common.GetPortForwarder(
+			portforwarder, closeChan, err := common.GetPortForwarder(
 				clusterProvider.GetSeedClusterAdminClient().CoreV1(),
 				clusterProvider.SeedAdminConfig(),
 				userCluster.Status.NamespaceName,
@@ -86,22 +98,29 @@ func ProxyEndpoint(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get portforwarder for console: %v", err)
 			}
-			defer portforwarder.Close()
+			defer func() {
+				portforwarder.Close()
+				close(closeChan)
+			}()
 
 			if err = common.ForwardPort(log, portforwarder); err != nil {
 				common.WriteHTTPError(log, w, err)
 				return nil, nil
 			}
 
-			port, err := common.GetLocalPortFromPortForwardOutput(outBuffer.String())
+			ports, err := portforwarder.GetPorts()
 			if err != nil {
 				common.WriteHTTPError(log, w, fmt.Errorf("failed to get backend port: %v", err))
+				return nil, nil
+			}
+			if len(ports) != 1 {
+				common.WriteHTTPError(log, w, fmt.Errorf("didn't get exactly one port but %d", len(ports)))
 				return nil, nil
 			}
 
 			proxyURL := &url.URL{
 				Scheme: "http",
-				Host:   fmt.Sprintf("127.0.0.1:%d", port),
+				Host:   fmt.Sprintf("127.0.0.1:%d", ports[0].Local),
 			}
 
 			// Override strict CSP policy for proxy

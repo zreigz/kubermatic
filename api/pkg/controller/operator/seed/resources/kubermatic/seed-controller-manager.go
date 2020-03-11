@@ -16,7 +16,6 @@ import (
 	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/pointer"
 )
 
 func seedControllerManagerPodLabels() map[string]string {
@@ -28,7 +27,7 @@ func seedControllerManagerPodLabels() map[string]string {
 func SeedControllerManagerDeploymentCreator(workerName string, versions common.Versions, cfg *operatorv1alpha1.KubermaticConfiguration, seed *kubermaticv1.Seed) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
 		return common.SeedControllerManagerDeploymentName, func(d *appsv1.Deployment) (*appsv1.Deployment, error) {
-			d.Spec.Replicas = pointer.Int32Ptr(2)
+			d.Spec.Replicas = cfg.Spec.SeedController.Replicas
 			d.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: seedControllerManagerPodLabels(),
 			}
@@ -60,7 +59,7 @@ func SeedControllerManagerDeploymentCreator(workerName string, versions common.V
 				fmt.Sprintf("-seed-admissionwebhook-cert-file=/opt/seed-webhook-serving-cert/%s", resources.ServingCertSecretKey),
 				fmt.Sprintf("-seed-admissionwebhook-key-file=/opt/seed-webhook-serving-cert/%s", resources.ServingCertKeySecretKey),
 				fmt.Sprintf("-namespace=%s", cfg.Namespace),
-				fmt.Sprintf("-external-url=%s", cfg.Spec.Domain),
+				fmt.Sprintf("-external-url=%s", cfg.Spec.Ingress.Domain),
 				fmt.Sprintf("-datacenter-name=%s", seed.Name),
 				fmt.Sprintf("-etcd-disk-size=%s", cfg.Spec.UserCluster.EtcdVolumeSize),
 				fmt.Sprintf("-feature-gates=%s", common.StringifyFeatureGates(cfg)),
@@ -68,10 +67,8 @@ func SeedControllerManagerDeploymentCreator(workerName string, versions common.V
 				fmt.Sprintf("-worker-name=%s", workerName),
 				fmt.Sprintf("-kubermatic-image=%s", cfg.Spec.UserCluster.KubermaticDockerRepository),
 				fmt.Sprintf("-dnatcontroller-image=%s", cfg.Spec.UserCluster.DNATControllerDockerRepository),
-				fmt.Sprintf("-kubernetes-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Kubernetes.Default, ",")),
-				fmt.Sprintf("-openshift-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Openshift.Default, ",")),
 				fmt.Sprintf("-overwrite-registry=%s", cfg.Spec.UserCluster.OverwriteRegistry),
-				fmt.Sprintf("-apiserver-default-replicas=%d", 2),
+				fmt.Sprintf("-apiserver-default-replicas=%d", *cfg.Spec.UserCluster.APIServerReplicas),
 				fmt.Sprintf("-controller-manager-default-replicas=%d", 1),
 				fmt.Sprintf("-scheduler-default-replicas=%d", 1),
 				fmt.Sprintf("-max-parallel-reconcile=%d", 10),
@@ -150,29 +147,39 @@ func SeedControllerManagerDeploymentCreator(workerName string, versions common.V
 				},
 			}
 
-			if len(cfg.Spec.MasterFiles) > 0 {
-				args = append(
-					args,
-					"-versions=/opt/master-files/versions.yaml",
-					"-updates=/opt/master-files/updates.yaml",
-					"-master-resources=/opt/master-files",
-				)
+			args = append(
+				args,
+				"-versions=/opt/master-files/versions.yaml",
+				"-updates=/opt/master-files/updates.yaml",
+			)
 
-				volumes = append(volumes, corev1.Volume{
-					Name: "master-files",
-					VolumeSource: corev1.VolumeSource{
-						Secret: &corev1.SecretVolumeSource{
-							SecretName: common.MasterFilesSecretName,
-						},
-					},
-				})
-
-				volumeMounts = append(volumeMounts, corev1.VolumeMount{
-					MountPath: "/opt/master-files/",
-					Name:      "master-files",
-					ReadOnly:  true,
-				})
+			if cfg.Spec.UserCluster.Addons.Openshift.DefaultManifests != "" {
+				args = append(args, "-openshift-addons-file=/opt/master-files/"+common.OpenshiftAddonsFileName)
+			} else {
+				args = append(args, fmt.Sprintf("-openshift-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Openshift.Default, ",")))
 			}
+
+			if cfg.Spec.UserCluster.Addons.Kubernetes.DefaultManifests != "" {
+				args = append(args, "-kubernetes-addons-file=/opt/master-files/"+common.KubernetesAddonsFileName)
+			} else {
+
+				args = append(args, fmt.Sprintf("-kubernetes-addons-list=%s", strings.Join(cfg.Spec.UserCluster.Addons.Kubernetes.Default, ",")))
+			}
+
+			volumes = append(volumes, corev1.Volume{
+				Name: "master-files",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: common.MasterFilesSecretName,
+					},
+				},
+			})
+
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: "/opt/master-files/",
+				Name:      "master-files",
+				ReadOnly:  true,
+			})
 
 			if cfg.Spec.FeatureGates.Has(features.OpenIDAuthPlugin) {
 				args = append(args,

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -15,7 +16,6 @@ import (
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
-	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
@@ -483,6 +483,12 @@ type CRDCreateor = func(version semver.Semver, existing *apiextensionsv1beta1.Cu
 // APIServiceCreator defines an interface to create/update APIService's
 type APIServiceCreator = func(existing *apiregistrationv1beta1.APIService) (*apiregistrationv1beta1.APIService, error)
 
+// Requirements are how much resources are needed by containers in the pod
+type Requirements struct {
+	Name     string                       `json:"name,omitempty"`
+	Requires *corev1.ResourceRequirements `json:"requires,omitempty"`
+}
+
 // GetClusterExternalIP returns a net.IP for the given Cluster
 func GetClusterExternalIP(cluster *kubermaticv1.Cluster) (*net.IP, error) {
 	ip := net.ParseIP(cluster.Address.IP)
@@ -867,27 +873,6 @@ func GetPodTemplateLabels(
 	return podLabels, nil
 }
 
-type GetGlobalSecretKeySelectorValue = func(configVar *providerconfig.GlobalSecretKeySelector) (string, error)
-
-func GlobalSecretKeySelectorValueGetterFactory(ctx context.Context, client ctrlruntimeclient.Client) GetGlobalSecretKeySelectorValue {
-	return func(configVar *providerconfig.GlobalSecretKeySelector) (string, error) {
-		// We need all three of these to fetch and use a secret
-		if configVar.Name != "" && configVar.Namespace != "" && configVar.Key != "" {
-			secret := &corev1.Secret{}
-			key := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
-			if err := client.Get(ctx, key, secret); err != nil {
-				return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
-			}
-
-			if val, ok := secret.Data[configVar.Key]; ok {
-				return string(val), nil
-			}
-			return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, configVar.Key)
-		}
-		return "", nil
-	}
-}
-
 func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL string) []corev1.EnvVar {
 	if seed.Spec.ProxySettings.Empty() {
 		return nil
@@ -926,4 +911,53 @@ func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL 
 	)
 
 	return envVars
+}
+
+// SetResourceRequirements sets resource requirements on provided slice of containers.
+// The highest priority has requirements provided using overrides, then requirements provided by the vpa-updater
+// (if VPA is enabled), and at the end provided default requirements for a given resource.
+func SetResourceRequirements(containers []corev1.Container, requirements, overrides map[string]*corev1.ResourceRequirements, annotations map[string]string) error {
+	val, ok := annotations[kubermaticv1.UpdatedByVPALabelKey]
+	if ok && val != "" {
+		var req []Requirements
+		err := json.Unmarshal([]byte(val), &req)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal resource requirements provided by vpa from annotation %s: %v", kubermaticv1.UpdatedByVPALabelKey, err)
+		}
+		for _, r := range req {
+			requirements[r.Name] = r.Requires
+		}
+	}
+	for k, v := range overrides {
+		requirements[k] = v
+	}
+
+	for i := range containers {
+		if requirements[containers[i].Name] != nil {
+			containers[i].Resources = *requirements[containers[i].Name]
+		}
+	}
+
+	return nil
+}
+
+func GetOverrides(componentSettings kubermaticv1.ComponentSettings) map[string]*corev1.ResourceRequirements {
+	r := map[string]*corev1.ResourceRequirements{}
+	if componentSettings.Apiserver.Resources != nil {
+		r[ApiserverDeploymentName] = componentSettings.Apiserver.Resources.DeepCopy()
+	}
+	if componentSettings.ControllerManager.Resources != nil {
+		r[ControllerManagerDeploymentName] = componentSettings.ControllerManager.Resources.DeepCopy()
+	}
+	if componentSettings.Scheduler.Resources != nil {
+		r[SchedulerDeploymentName] = componentSettings.Scheduler.Resources.DeepCopy()
+	}
+	if componentSettings.Etcd.Resources != nil {
+		r[EtcdStatefulSetName] = componentSettings.Etcd.Resources.DeepCopy()
+	}
+	if componentSettings.Prometheus.Resources != nil {
+		r[PrometheusStatefulSetName] = componentSettings.Prometheus.Resources.DeepCopy()
+	}
+
+	return r
 }

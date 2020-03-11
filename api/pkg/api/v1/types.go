@@ -275,6 +275,20 @@ type GCPZone struct {
 // swagger:model GCPZoneList
 type GCPZoneList []GCPZone
 
+// GCPNetworkList represents an array of GCP networks.
+// swagger:model GCPNetworkList
+type GCPNetworkList []GCPNetwork
+
+// GCPNetwork represents a object of GCP networks.
+// swagger:model GCPNetwork
+type GCPNetwork struct {
+	ID                    uint64   `json:"id"`
+	Name                  string   `json:"name"`
+	AutoCreateSubnetworks bool     `json:"autoCreateSubnetworks"`
+	Subnetworks           []string `json:"subnetworks"`
+	Kind                  string   `json:"kind"`
+}
+
 // DigitaloceanSizeList represents a object of digitalocean sizes.
 // swagger:model DigitaloceanSizeList
 type DigitaloceanSizeList struct {
@@ -1175,6 +1189,8 @@ type NodeDeploymentSpec struct {
 	Template NodeSpec `json:"template"`
 	// required: false
 	Paused *bool `json:"paused,omitempty"`
+	// required: false
+	DynamicConfig *bool `json:"dynamicConfig,omitempty"`
 }
 
 // Event is a report of an event somewhere in the cluster.

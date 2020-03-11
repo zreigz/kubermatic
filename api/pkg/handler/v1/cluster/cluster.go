@@ -60,7 +60,7 @@ var clusterTypes = []string{
 }
 
 func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter,
-	initNodeDeploymentFailures *prometheus.CounterVec, eventRecorderProvider provider.EventRecorderProvider, credentialManager common.PresetsManager,
+	initNodeDeploymentFailures *prometheus.CounterVec, eventRecorderProvider provider.EventRecorderProvider, credentialManager provider.PresetProvider,
 	exposeStrategy corev1.ServiceType, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(CreateReq)
@@ -84,7 +84,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 			return nil, errors.New(int(http.StatusBadRequest), "cluster.ID is read-only")
 		}
 
-		_, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, req.Body.Cluster.Spec.Cloud.DatacenterName)
+		seed, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, req.Body.Cluster.Spec.Cloud.DatacenterName)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -104,7 +104,12 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		if err != nil {
 			return nil, errors.NewBadRequest("invalid cluster: %v", err)
 		}
+
+		// master level ExposeStrategy is the default
 		spec.ExposeStrategy = exposeStrategy
+		if seed.Spec.ExposeStrategy != "" {
+			spec.ExposeStrategy = seed.Spec.ExposeStrategy
+		}
 
 		existingClusters, err := clusterProvider.List(project, &provider.ClusterListOptions{ClusterSpecName: spec.HumanReadableName})
 		if err != nil {
@@ -150,25 +155,24 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 			if err != nil {
 				return nil, errors.NewBadRequest("failed to create an initial node deployment due to an invalid spec: %v", err)
 			}
-			if isBYO {
+			if !isBYO {
+				go func() {
+					defer utilruntime.HandleCrash()
+					ndName := getNodeDeploymentDisplayName(req.Body.NodeDeployment)
+					eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationStart), "Started creation of initial node deployment %s", ndName)
+					err := createInitialNodeDeploymentWithRetries(req.Body.NodeDeployment, newCluster, project, sshKeyProvider, seedsGetter, clusterProvider, userInfo)
+					if err != nil {
+						eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeWarning, string(nodeDeploymentCreationFail), "Failed to create initial node deployment %s: %v", ndName, err)
+						klog.Errorf("failed to create initial node deployment for cluster %s: %v", newCluster.Name, err)
+						initNodeDeploymentFailures.With(prometheus.Labels{"cluster": newCluster.Name, "datacenter": req.Body.Cluster.Spec.Cloud.DatacenterName}).Add(1)
+					} else {
+						eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationSuccess), "Successfully created initial node deployment %s", ndName)
+						klog.V(5).Infof("created initial node deployment for cluster %s", newCluster.Name)
+					}
+				}()
+			} else {
 				klog.V(5).Infof("KubeAdm provider detected an initial node deployment won't be created for cluster %s", newCluster.Name)
-				return convertInternalClusterToExternal(newCluster), nil
 			}
-
-			go func() {
-				defer utilruntime.HandleCrash()
-				ndName := getNodeDeploymentDisplayName(req.Body.NodeDeployment)
-				eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationStart), "Started creation of initial node deployment %s", ndName)
-				err := createInitialNodeDeploymentWithRetries(req.Body.NodeDeployment, newCluster, project, sshKeyProvider, seedsGetter, clusterProvider, userInfo)
-				if err != nil {
-					eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeWarning, string(nodeDeploymentCreationFail), "Failed to create initial node deployment %s: %v", ndName, err)
-					klog.Errorf("failed to create initial node deployment for cluster %s: %v", newCluster.Name, err)
-					initNodeDeploymentFailures.With(prometheus.Labels{"cluster": newCluster.Name, "datacenter": req.Body.Cluster.Spec.Cloud.DatacenterName}).Add(1)
-				} else {
-					eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationSuccess), "Successfully created initial node deployment %s", ndName)
-					klog.V(5).Infof("created initial node deployment for cluster %s", newCluster.Name)
-				}
-			}()
 		}
 
 		log := kubermaticlog.Logger.With("cluster", newCluster.Name)
@@ -450,9 +454,11 @@ func ListAllEndpoint(projectProvider provider.ProjectProvider, seedsGetter provi
 		}
 
 		for _, seed := range seeds {
+			// if a Seed is bad, do not forward that error to the user, but only log
 			clusterProvider, err := clusterProviderGetter(seed)
 			if err != nil {
-				return nil, common.KubernetesErrorToHTTPError(err)
+				klog.Errorf("failed to create cluster provider for seed %s: %v", seed.Name, err)
+				continue
 			}
 			apiClusters, err := getClusters(clusterProvider, userInfo, projectProvider, req.ProjectID)
 			if err != nil {
@@ -709,8 +715,7 @@ func convertInternalClusterToExternal(internalCluster *kubermaticv1.Cluster) *ap
 		Type: apiv1.KubernetesClusterType,
 	}
 
-	isOpenShift, ok := internalCluster.Annotations["kubermatic.io/openshift"]
-	if ok && isOpenShift == "true" {
+	if internalCluster.IsOpenshift() {
 		cluster.Type = apiv1.OpenShiftClusterType
 	}
 

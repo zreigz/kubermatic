@@ -95,9 +95,16 @@ func openStackDeploymentCreator(data *resources.TemplateData) reconciling.NamedD
 					Image:        data.ImageRegistry(resources.RegistryDocker) + "/k8scloudprovider/openstack-cloud-controller-manager:v" + version,
 					Command:      []string{"/bin/openstack-cloud-controller-manager"},
 					Args:         flags,
-					Resources:    osResourceRequirements,
 					VolumeMounts: osCloudProviderMounts,
 				},
+			}
+			defResourceRequirements := map[string]*corev1.ResourceRequirements{
+				osName:              osResourceRequirements.DeepCopy(),
+				openvpnSidecar.Name: openvpnSidecar.Resources.DeepCopy(),
+			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
 			}
 
 			return dep, nil
@@ -150,6 +157,8 @@ func getOSVersion(version semver.Semver) (string, error) {
 	switch version.Minor() {
 	case 16:
 		return "1.16.0", nil
+	case 17:
+		return "1.17.0", nil
 	default:
 		return "", fmt.Errorf("kubernetes version %s not supported", version.String())
 	}

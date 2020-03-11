@@ -30,6 +30,14 @@ const (
 	// VersionLabel is the label containing the application's version.
 	VersionLabel = "app.kubernetes.io/version"
 
+	// OpenshiftAddonsFileName is the name of the openshift addons manifest file
+	// in the master files.
+	OpenshiftAddonsFileName = "openshift-addons.yaml"
+
+	// KubernetesAddonsFileName is the name of the kubernetes addons manifest file
+	// in the master files.
+	KubernetesAddonsFileName = "kubernetes-addons.yaml"
+
 	DockercfgSecretName                   = "dockercfg"
 	DexCASecretName                       = "dex-ca"
 	MasterFilesSecretName                 = "extra-files"
@@ -81,9 +89,15 @@ func DexCASecretCreator(cfg *operatorv1alpha1.KubermaticConfiguration) reconcili
 }
 
 func MasterFilesSecretCreator(cfg *operatorv1alpha1.KubermaticConfiguration) reconciling.NamedSecretCreatorGetter {
+	data := map[string]string{}
+	for key, val := range cfg.Spec.MasterFiles {
+		data[key] = val
+	}
+	data[OpenshiftAddonsFileName] = cfg.Spec.UserCluster.Addons.Openshift.DefaultManifests
+	data[KubernetesAddonsFileName] = cfg.Spec.UserCluster.Addons.Kubernetes.DefaultManifests
 	return func() (string, reconciling.SecretCreator) {
 		return MasterFilesSecretName, func(s *corev1.Secret) (*corev1.Secret, error) {
-			return createSecretData(s, cfg.Spec.MasterFiles), nil
+			return createSecretData(s, data), nil
 		}
 	}
 }
@@ -138,7 +152,8 @@ func SeedAdmissionWebhookName(cfg *operatorv1alpha1.KubermaticConfiguration) str
 func SeedAdmissionWebhookCreator(cfg *operatorv1alpha1.KubermaticConfiguration, client ctrlruntimeclient.Client) reconciling.NamedValidatingWebhookConfigurationCreatorGetter {
 	return func() (string, reconciling.ValidatingWebhookConfigurationCreator) {
 		return SeedAdmissionWebhookName(cfg), func(hook *admissionregistrationv1beta1.ValidatingWebhookConfiguration) (*admissionregistrationv1beta1.ValidatingWebhookConfiguration, error) {
-			policy := admissionregistrationv1beta1.Fail
+			matchPolicy := admissionregistrationv1beta1.Exact
+			failurePolicy := admissionregistrationv1beta1.Fail
 			sideEffects := admissionregistrationv1beta1.SideEffectClassUnknown
 			scope := admissionregistrationv1beta1.AllScopes
 
@@ -151,7 +166,8 @@ func SeedAdmissionWebhookCreator(cfg *operatorv1alpha1.KubermaticConfiguration, 
 				{
 					Name:                    "seeds.kubermatic.io", // this should be a FQDN
 					AdmissionReviewVersions: []string{admissionregistrationv1beta1.SchemeGroupVersion.Version},
-					FailurePolicy:           &policy,
+					MatchPolicy:             &matchPolicy,
+					FailurePolicy:           &failurePolicy,
 					SideEffects:             &sideEffects,
 					TimeoutSeconds:          pointer.Int32Ptr(30),
 					ClientConfig: admissionregistrationv1beta1.WebhookClientConfig{
@@ -159,6 +175,7 @@ func SeedAdmissionWebhookCreator(cfg *operatorv1alpha1.KubermaticConfiguration, 
 						Service: &admissionregistrationv1beta1.ServiceReference{
 							Name:      seedWebhookServiceName,
 							Namespace: cfg.Namespace,
+							Port:      pointer.Int32Ptr(443),
 						},
 					},
 					NamespaceSelector: &metav1.LabelSelector{
@@ -166,6 +183,7 @@ func SeedAdmissionWebhookCreator(cfg *operatorv1alpha1.KubermaticConfiguration, 
 							NameLabel: cfg.Namespace,
 						},
 					},
+					ObjectSelector: &metav1.LabelSelector{},
 					Rules: []admissionregistrationv1beta1.RuleWithOperations{
 						{
 							Rule: admissionregistrationv1beta1.Rule{

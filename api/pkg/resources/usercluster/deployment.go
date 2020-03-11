@@ -19,14 +19,16 @@ import (
 )
 
 var (
-	defaultResourceRequirements = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("32Mi"),
-			corev1.ResourceCPU:    resource.MustParse("25m"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-			corev1.ResourceCPU:    resource.MustParse("500m"),
+	defaultResourceRequirements = map[string]*corev1.ResourceRequirements{
+		name: {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("25m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
 		},
 	}
 )
@@ -106,6 +108,7 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 				fmt.Sprintf("-openshift=%t", openshift),
 				"-version", data.Cluster().Spec.Version.String(),
 				"-cloud-provider-name", data.GetKubernetesCloudProviderName(),
+				"-owner-email", data.Cluster().Status.UserEmail,
 			}, getNetworkArgs(data)...)
 
 			if openshiftConsoleCallbackURI := data.Cluster().Address.OpenshiftConsoleCallBack; openshiftConsoleCallbackURI != "" {
@@ -145,7 +148,6 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 							},
 						},
 					},
-					Resources: defaultResourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -167,6 +169,10 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 						},
 					},
 				},
+			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defaultResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
 			}
 			dep.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 

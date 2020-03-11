@@ -71,6 +71,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Handler(r.listGCPZones())
 
 	mux.Methods(http.MethodGet).
+		Path("/providers/gcp/networks").
+		Handler(r.listGCPNetworks())
+
+	mux.Methods(http.MethodGet).
 		Path("/providers/digitalocean/sizes").
 		Handler(r.listDigitaloceanSizes())
 
@@ -406,6 +410,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Handler(r.listGCPZonesNoCredentials())
 
 	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/networks").
+		Handler(r.listGCPNetworksNoCredentials())
+
+	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/hetzner/sizes").
 		Handler(r.listHetznerSizesNoCredentials())
 
@@ -636,7 +644,7 @@ func (r Routing) listCredentials() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(presets.CredentialEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(presets.CredentialEndpoint(r.presetsProvider, r.userInfoGetter)),
 		presets.DecodeProviderReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -680,7 +688,7 @@ func (r Routing) listAWSSubnets() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.AWSSubnetEndpoint(r.presetsManager, r.seedsGetter, r.userInfoGetter)),
+		)(provider.AWSSubnetEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAWSSubnetReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -702,7 +710,7 @@ func (r Routing) listAWSVPCS() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.AWSVPCEndpoint(r.presetsManager, r.seedsGetter, r.userInfoGetter)),
+		)(provider.AWSVPCEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAWSVPCReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -724,7 +732,7 @@ func (r Routing) listGCPDiskTypes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.GCPDiskTypesEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.GCPDiskTypesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -746,7 +754,7 @@ func (r Routing) listGCPSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.GCPSizeEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.GCPSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -768,8 +776,30 @@ func (r Routing) listGCPZones() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.GCPZoneEndpoint(r.presetsManager, r.seedsGetter, r.userInfoGetter)),
+		)(provider.GCPZoneEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeGCPZoneReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/providers/gcp/networks gcp listGCPNetworks
+//
+// Lists networks from GCP
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: GCPNetworkList
+func (r Routing) listGCPNetworks() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(provider.GCPNetworkEndpoint(r.presetsProvider, r.userInfoGetter)),
+		provider.DecodeGCPCommonReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
@@ -790,7 +820,7 @@ func (r Routing) listDigitaloceanSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.DigitaloceanSizeEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.DigitaloceanSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeDoSizesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -812,7 +842,7 @@ func (r Routing) listAzureSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.AzureSizeEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.AzureSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeAzureSizesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -834,7 +864,7 @@ func (r Routing) listOpenstackSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.OpenstackSizeEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.OpenstackSizeEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -856,7 +886,7 @@ func (r Routing) listVSphereNetworks() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.VsphereNetworksEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.VsphereNetworksEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeVSphereNetworksReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -878,7 +908,7 @@ func (r Routing) listVSphereFolders() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.VsphereFoldersEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.VsphereFoldersEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeVSphereFoldersReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -900,7 +930,7 @@ func (r Routing) listPacketSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.PacketSizesEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.PacketSizesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodePacketSizesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -945,7 +975,7 @@ func (r Routing) listOpenstackTenants() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.OpenstackTenantEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.OpenstackTenantEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackTenantReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -967,7 +997,7 @@ func (r Routing) listOpenstackNetworks() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.OpenstackNetworkEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.OpenstackNetworkEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -989,7 +1019,7 @@ func (r Routing) listOpenstackSubnets() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.OpenstackSubnetsEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.OpenstackSubnetsEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackSubnetReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1011,7 +1041,7 @@ func (r Routing) listOpenstackSecurityGroups() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.OpenstackSecurityGroupEndpoint(r.seedsGetter, r.presetsManager, r.userInfoGetter)),
+		)(provider.OpenstackSecurityGroupEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1033,7 +1063,7 @@ func (r Routing) listHetznerSizes() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(provider.HetznerSizeEndpoint(r.presetsManager, r.userInfoGetter)),
+		)(provider.HetznerSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeHetznerSizesReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1276,7 +1306,7 @@ func (r Routing) createCluster(initNodeDeploymentFailures *prometheus.CounterVec
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsManager, r.exposeStrategy, r.userInfoGetter)),
+		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsProvider, r.exposeStrategy, r.userInfoGetter)),
 		cluster.DecodeCreateReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -2249,6 +2279,29 @@ func (r Routing) listGCPZonesNoCredentials() http.Handler {
 	)
 }
 
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/networks gcp listGCPNetworksNoCredentials
+//
+// Lists available GCP networks
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: GCPNetworkList
+func (r Routing) listGCPNetworksNoCredentials() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPNetworkWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+		common.DecodeGetClusterReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
 // swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/hetzner/sizes hetzner listHetznerSizesNoCredentials
 //
 // Lists sizes from hetzner
@@ -2999,6 +3052,7 @@ func (r Routing) kubernetesDashboardProxy() http.Handler {
 		middleware.TokenExtractor(r.tokenExtractors),
 		r.projectProvider,
 		r.userInfoGetter,
+		r.settingsProvider,
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
@@ -3324,7 +3378,7 @@ func (r Routing) patchClusterRole() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       201: RoleBinding
+//       200: RoleBinding
 //       401: empty
 //       403: empty
 func (r Routing) bindUserToRole() http.Handler {
@@ -3352,7 +3406,7 @@ func (r Routing) bindUserToRole() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       201: RoleBinding
+//       200: RoleBinding
 //       401: empty
 //       403: empty
 func (r Routing) unbindUserFromRoleBinding() http.Handler {
@@ -3406,7 +3460,7 @@ func (r Routing) listRoleBinding() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       201: ClusterRoleBinding
+//       200: ClusterRoleBinding
 //       401: empty
 //       403: empty
 func (r Routing) bindUserToClusterRole() http.Handler {
@@ -3434,7 +3488,7 @@ func (r Routing) bindUserToClusterRole() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       201: ClusterRoleBinding
+//       200: ClusterRoleBinding
 //       401: empty
 //       403: empty
 func (r Routing) unbindUserFromClusterRoleBinding() http.Handler {

@@ -11,7 +11,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/controller/operator/common"
 	masterctrl "github.com/kubermatic/kubermatic/api/pkg/controller/operator/master"
 	seedctrl "github.com/kubermatic/kubermatic/api/pkg/controller/operator/seed"
-	seedcontrollerlifecycle "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-lifecycle"
+	seedcontrollerlifecycle "github.com/kubermatic/kubermatic/api/pkg/controller/shared/seed-controller-lifecycle"
 	operatorv1alpha1 "github.com/kubermatic/kubermatic/api/pkg/crd/operator/v1alpha1"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/pprof"
@@ -31,26 +31,29 @@ type controllerRunOptions struct {
 	kubeconfig   string
 	namespace    string
 	internalAddr string
-	log          kubermaticlog.Options
 	workerCount  int
 	workerName   string
 }
 
 func main() {
+	ctx := context.Background()
+
 	klog.InitFlags(nil)
+
 	pprofOpts := &pprof.Opts{}
 	pprofOpts.AddFlags(flag.CommandLine)
+	logOpts := kubermaticlog.NewDefaultOptions()
+	logOpts.AddFlags(flag.CommandLine)
+
 	opt := &controllerRunOptions{}
 	flag.StringVar(&opt.kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if outside of cluster.")
 	flag.StringVar(&opt.namespace, "namespace", "", "The namespace the operator runs in, uses to determine where to look for KubermaticConfigurations.")
 	flag.IntVar(&opt.workerCount, "worker-count", 4, "Number of workers which process reconcilings in parallel.")
 	flag.StringVar(&opt.internalAddr, "internal-address", "127.0.0.1:8085", "The address on which the /metrics endpoint will be served")
-	flag.BoolVar(&opt.log.Debug, "log-debug", false, "Enables debug logging")
-	flag.StringVar(&opt.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format, one of "+kubermaticlog.AvailableFormats.String())
 	flag.StringVar(&opt.workerName, "worker-name", "", "The name of the worker that will only processes resources with label=worker-name.")
 	flag.Parse()
 
-	rawLog := kubermaticlog.New(opt.log.Debug, kubermaticlog.Format(opt.log.Format)).Named(opt.workerName)
+	rawLog := kubermaticlog.New(logOpts.Debug, logOpts.Format).Named(opt.workerName)
 	log := rawLog.Sugar()
 	defer func() {
 		if err := log.Sync(); err != nil {
@@ -92,9 +95,6 @@ func main() {
 		log.Fatalw("Failed to register scheme", zap.Stringer("api", certmanagerv1alpha2.SchemeGroupVersion), zap.Error(err))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	seedsGetter, err := provider.SeedsGetterFactory(ctx, mgr.GetClient(), "", opt.namespace, true)
 	if err != nil {
 		log.Fatalw("Failed to construct seedsGetter", zap.Error(err))
@@ -109,17 +109,18 @@ func main() {
 		log.Fatalw("Failed to add operator-master controller", zap.Error(err))
 	}
 
-	ctrlCtx := seedOperatorContext{
-		ctx:                  ctx,
-		log:                  log,
-		namespace:            opt.namespace,
-		seedsGetter:          seedsGetter,
-		seedKubeconfigGetter: seedKubeconfigGetter,
-		workerCount:          opt.workerCount,
-		workerName:           opt.workerName,
+	seedOperatorControllerFactory := func(ctx context.Context, mgr manager.Manager, seedManagerMap map[string]manager.Manager) (string, error) {
+		return seedctrl.ControllerName, seedctrl.Add(
+			ctx,
+			log,
+			opt.namespace,
+			mgr,
+			seedManagerMap,
+			seedsGetter,
+			opt.workerCount,
+			opt.workerName,
+		)
 	}
-
-	seedOperatorControllerFactory := seedOperatorControllerFactoryCreator(ctrlCtx)
 
 	if err := seedcontrollerlifecycle.Add(ctx, log, mgr, opt.namespace, seedsGetter, seedKubeconfigGetter, seedOperatorControllerFactory); err != nil {
 		log.Fatalw("Failed to create seed-lifecycle controller", zap.Error(err))
@@ -127,63 +128,5 @@ func main() {
 
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatalw("Cannot start manager", zap.Error(err))
-	}
-}
-
-type seedOperatorContext struct {
-	ctx                  context.Context
-	log                  *zap.SugaredLogger
-	namespace            string
-	seedsGetter          provider.SeedsGetter
-	seedKubeconfigGetter provider.SeedKubeconfigGetter
-	workerCount          int
-	workerName           string
-}
-
-func seedOperatorControllerFactoryCreator(ctrlCtx seedOperatorContext) seedcontrollerlifecycle.ControllerFactory {
-	factory := func(mgr manager.Manager) error {
-		log := ctrlCtx.log.Named("operator-seed-controller-factory")
-
-		seeds, err := ctrlCtx.seedsGetter()
-		if err != nil {
-			log.Errorw("Failed to get seeds", zap.Error(err))
-			return fmt.Errorf("failed to get seeds: %v", err)
-		}
-
-		seedManagerMap := map[string]manager.Manager{}
-		for seedName, seed := range seeds {
-			log := log.With("seed", seed.Name)
-
-			kubeconfig, err := ctrlCtx.seedKubeconfigGetter(seed)
-			if err != nil {
-				log.Errorw("Failed to get kubeconfig for seed", zap.Error(err))
-				continue
-			}
-
-			seedMgr, err := manager.New(kubeconfig, manager.Options{MetricsBindAddress: "0"})
-			if err != nil {
-				log.Errorw("Failed to construct mgr for seed", zap.Error(err))
-				continue
-			}
-			seedManagerMap[seedName] = seedMgr
-
-			if err := mgr.Add(seedMgr); err != nil {
-				return fmt.Errorf("failed to add controller manager for seed %q to mgr: %v", seedName, err)
-			}
-		}
-
-		return seedctrl.Add(
-			ctrlCtx.ctx,
-			ctrlCtx.log,
-			ctrlCtx.namespace,
-			mgr,
-			seedManagerMap,
-			ctrlCtx.seedsGetter,
-			ctrlCtx.workerCount,
-			ctrlCtx.workerName)
-	}
-
-	return func(mgr manager.Manager) (string, error) {
-		return seedctrl.ControllerName, factory(mgr)
 	}
 }

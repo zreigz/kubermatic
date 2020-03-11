@@ -23,6 +23,7 @@ fi
 DEPLOY_NODEPORT_PROXY=${DEPLOY_NODEPORT_PROXY:-true}
 DEPLOY_ALERTMANAGER=${DEPLOY_ALERTMANAGER:-true}
 DEPLOY_MINIO=${DEPLOY_MINIO:-true}
+DEPLOY_KUBERMATIC_OPERATOR=${DEPLOY_KUBERMATIC_OPERATOR:-false}
 DEPLOY_STACK=${DEPLOY_STACK:-kubermatic}
 TILLER_NAMESPACE=${TILLER_NAMESPACE:-kubermatic}
 HELM_INIT_ARGS=${HELM_INIT_ARGS:-""}
@@ -100,6 +101,8 @@ LATEST_DASHBOARD="$(get_latest_dashboard_hash "${PULL_BASE_REF}")"
 sed -i "s/__DASHBOARD_TAG__/$LATEST_DASHBOARD/g" ./config/kubermatic/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic-operator/*.yaml
+sed -i "s/__NAMESPACE__/kubermatic/g" ./config/kubermatic-operator/*.yaml
+sed -i "s/__WORKER_NAME__/kubermatic-operator/g" ./config/kubermatic-operator/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/nodeport-proxy/*.yaml
 
 echodate "Deploying ${DEPLOY_STACK} stack..."
@@ -164,10 +167,10 @@ case "${DEPLOY_STACK}" in
 
     # Kubermatic
     deploy "kubermatic" "kubermatic" ./config/kubermatic/
-    ;;
 
-  kubermatic-operator)
-    kubectl create namespace kubermatic-operator || true
-    kubectl apply -f ./config/kubermatic-operator/
+    if [[ "${DEPLOY_KUBERMATIC_OPERATOR}" = true ]]; then
+      echodate "Deploying Kubermatic Operator..."
+      kubectl apply -f ./config/kubermatic-operator/
+    fi
     ;;
 esac

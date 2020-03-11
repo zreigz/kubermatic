@@ -256,7 +256,7 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 	}()
 
 	ctx := context.Background()
-	if r.existingClusterLabel == "" {
+	if r.existingClusterLabel == "" && os.Getenv("KUBERMATIC_USE_EXISTING_CLUSTER") == "" {
 		if err := junitReporterWrapper(
 			"[Kubermatic] Create cluster",
 			report,
@@ -267,6 +267,7 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return report, fmt.Errorf("failed to create cluster: %v", err)
 		}
 	} else {
+		log.Infow("Using existing cluster")
 		selector, err := labels.Parse(r.existingClusterLabel)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse labelselector %q: %v", r.existingClusterLabel, err)
@@ -412,12 +413,17 @@ func (r *testRunner) executeTests(
 
 	var overallTimeout = 10 * time.Minute
 	var timeoutLeft time.Duration
-	if cluster.Annotations["kubermatic.io/openshift"] == "true" {
+	if cluster.IsOpenshift() {
 		// Openshift installs a lot more during node provisioning, hence this may take longer
 		overallTimeout += 5 * time.Minute
 	}
 	// The initialization of the external CCM is super slow
 	if cluster.Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider] {
+		overallTimeout += 5 * time.Minute
+	}
+	// Packet is slower at provisioning the instances, presumably because those are actual
+	// physical hosts.
+	if cluster.Spec.Cloud.Packet != nil {
 		overallTimeout += 5 * time.Minute
 	}
 
@@ -959,6 +965,7 @@ type ginkgoRun struct {
 	name       string
 	cmd        *exec.Cmd
 	reportsDir string
+	timeout    time.Duration
 }
 
 func (r *testRunner) getGinkgoRuns(
@@ -975,7 +982,7 @@ func (r *testRunner) getGinkgoRuns(
 	nodeNumberTotal := int32(r.nodeCount)
 
 	ginkgoSkipParallel := `\[Serial\]`
-	if cluster.Spec.Version.Minor() == 16 {
+	if minor := cluster.Spec.Version.Minor(); minor == 16 || minor == 17 {
 		// These require the nodes NodePort to be available from the tester, which is not the case for us.
 		// TODO: Maybe add an option to allow the NodePorts in the SecurityGroup?
 		ginkgoSkipParallel += "|Services should be able to change the type from ExternalName to NodePort|Services should be able to create a functioning NodePort service"
@@ -986,18 +993,21 @@ func (r *testRunner) getGinkgoRuns(
 		ginkgoFocus   string
 		ginkgoSkip    string
 		parallelTests int
+		timeout       time.Duration
 	}{
 		{
 			name:          "parallel",
 			ginkgoFocus:   `\[Conformance\]`,
 			ginkgoSkip:    ginkgoSkipParallel,
 			parallelTests: int(nodeNumberTotal) * 10,
+			timeout:       15 * time.Minute,
 		},
 		{
 			name:          "serial",
 			ginkgoFocus:   `\[Serial\].*\[Conformance\]`,
 			ginkgoSkip:    `should not cause race condition when used for configmap`,
 			parallelTests: 1,
+			timeout:       10 * time.Minute,
 		},
 	}
 	versionRoot := path.Join(repoRoot, MajorMinor)
@@ -1054,6 +1064,7 @@ func (r *testRunner) getGinkgoRuns(
 			name:       run.name,
 			cmd:        cmd,
 			reportsDir: reportsDir,
+			timeout:    run.timeout,
 		})
 	}
 
@@ -1087,14 +1098,16 @@ func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlr
 	writer := bufio.NewWriter(file)
 	defer writer.Flush()
 
+	ctx, cancel := context.WithTimeout(context.Background(), run.timeout)
+	defer cancel()
+
 	// Copy the command as we cannot execute a command twice
-	cmd := &exec.Cmd{
-		Path:       run.cmd.Path,
-		Args:       run.cmd.Args,
-		Env:        run.cmd.Env,
-		Dir:        run.cmd.Dir,
-		ExtraFiles: run.cmd.ExtraFiles,
-	}
+	cmd := exec.CommandContext(ctx, "")
+	cmd.Path = run.cmd.Path
+	cmd.Args = run.cmd.Args
+	cmd.Env = run.cmd.Env
+	cmd.Dir = run.cmd.Dir
+	cmd.ExtraFiles = run.cmd.ExtraFiles
 	if _, err := writer.Write([]byte(strings.Join(cmd.Args, argSeparator))); err != nil {
 		return nil, fmt.Errorf("failed to write command to log: %v", err)
 	}

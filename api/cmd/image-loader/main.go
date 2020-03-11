@@ -12,7 +12,6 @@ import (
 
 	addonutil "github.com/kubermatic/kubermatic/api/pkg/addon"
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/backup"
 	kubernetescontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/monitoring"
 	containerlinux "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/container-linux"
@@ -46,9 +45,7 @@ import (
 const mockNamespaceName = "mock-namespace"
 
 var (
-	staticImages = []string{
-		backupcontroller.DefaultBackupContainerImage,
-	}
+	staticImages = []string{}
 )
 
 type opts struct {
@@ -57,24 +54,23 @@ type opts struct {
 	registry      string
 	dryRun        bool
 	addonsPath    string
-
-	debug     bool
-	logFormat string
 }
 
 func main() {
 	klog.InitFlags(nil)
+
+	logOpts := kubermaticlog.NewDefaultOptions()
+	logOpts.AddFlags(flag.CommandLine)
+
 	o := opts{}
 	flag.StringVar(&o.versionsFile, "versions", "../config/kubermatic/static/master/versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&o.versionFilter, "version-filter", "", "Version constraint which can be used to filter for specific versions")
 	flag.StringVar(&o.registry, "registry", "registry.corp.local", "Address of the registry to push to")
 	flag.BoolVar(&o.dryRun, "dry-run", false, "Only print the names of found images")
 	flag.StringVar(&o.addonsPath, "addons-path", "", "Path to the folder containing the addons")
-	flag.BoolVar(&o.debug, "log-debug", false, "Enables debug logging")
-	flag.StringVar(&o.logFormat, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.Parse()
 
-	log := kubermaticlog.New(o.debug, kubermaticlog.Format(o.logFormat))
+	log := kubermaticlog.New(logOpts.Debug, logOpts.Format)
 	defer func() {
 		if err := log.Sync(); err != nil {
 			fmt.Println(err)

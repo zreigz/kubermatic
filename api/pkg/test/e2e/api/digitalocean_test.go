@@ -1,6 +1,6 @@
 // +build create
 
-package e2e
+package api
 
 import (
 	"fmt"
@@ -30,18 +30,18 @@ func TestCreateDOCluster(t *testing.T) {
 			dc:         "prow-build-cluster",
 			location:   "do-fra1",
 			version:    "v1.15.6",
-			credential: "loodse",
+			credential: "e2e-digitalocean",
 			replicas:   1,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
+			apiRunner := createRunner(masterToken, t)
 			project, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
 				t.Fatalf("can not create project %v", err)
@@ -126,18 +126,18 @@ func TestDeleteClusterBeforeIsUp(t *testing.T) {
 			dc:         "prow-build-cluster",
 			location:   "do-fra1",
 			version:    "v1.15.6",
-			credential: "loodse",
+			credential: "e2e-digitalocean",
 			replicas:   1,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
+			apiRunner := createRunner(masterToken, t)
 			project, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
 				t.Fatalf("can not create project %v", GetErrorResponse(err))
@@ -182,7 +182,7 @@ func TestGetClusterKubeconfig(t *testing.T) {
 			dc:           "prow-build-cluster",
 			location:     "do-fra1",
 			version:      "v1.15.6",
-			credential:   "loodse",
+			credential:   "e2e-digitalocean",
 			replicas:     1,
 			path:         "/api/v1/projects/%s/dc/%s/clusters/%s/kubeconfig",
 			expectedCode: http.StatusOK,
@@ -190,12 +190,12 @@ func TestGetClusterKubeconfig(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
+			apiRunner := createRunner(masterToken, t)
 			project, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
 				t.Fatalf("can not create project %v", err)

@@ -1,15 +1,12 @@
 aliases:
   team-lifecycle:
-    - alvaroaleman
     - kdomanski
     - moadqassem
     - thz
     - kron4eg
     - xmudrii
-
-  team-seed:
-    - kron4eg
     - xrstf
+    - youssefazrak
 
   team-ui:
     - kgroschoff

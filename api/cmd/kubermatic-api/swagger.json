@@ -1815,7 +1815,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "ClusterRoleBinding",
             "schema": {
               "$ref": "#/definitions/ClusterRoleBinding"
@@ -1885,7 +1885,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "ClusterRoleBinding",
             "schema": {
               "$ref": "#/definitions/ClusterRoleBinding"
@@ -3336,6 +3336,55 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/networks": {
+      "get": {
+        "description": "Lists available GCP networks",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "gcp"
+        ],
+        "operationId": "listGCPNetworksNoCredentials",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GCPNetworkList",
+            "schema": {
+              "$ref": "#/definitions/GCPNetworkList"
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/sizes": {
       "get": {
         "description": "Lists machine sizes from GCP",
@@ -4357,7 +4406,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "RoleBinding",
             "schema": {
               "$ref": "#/definitions/RoleBinding"
@@ -4434,7 +4483,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "RoleBinding",
             "schema": {
               "$ref": "#/definitions/RoleBinding"
@@ -5906,6 +5955,32 @@
             "description": "GCPDiskTypeList",
             "schema": {
               "$ref": "#/definitions/GCPDiskTypeList"
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/gcp/networks": {
+      "get": {
+        "description": "Lists networks from GCP",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "gcp"
+        ],
+        "operationId": "listGCPNetworks",
+        "responses": {
+          "200": {
+            "description": "GCPNetworkList",
+            "schema": {
+              "$ref": "#/definitions/GCPNetworkList"
             }
           },
           "default": {
@@ -8144,6 +8219,45 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "GCPNetwork": {
+      "type": "object",
+      "title": "GCPNetwork represents a object of GCP networks.",
+      "properties": {
+        "autoCreateSubnetworks": {
+          "type": "boolean",
+          "x-go-name": "AutoCreateSubnetworks"
+        },
+        "id": {
+          "type": "integer",
+          "format": "uint64",
+          "x-go-name": "ID"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "subnetworks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Subnetworks"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPNetworkList": {
+      "type": "array",
+      "title": "GCPNetworkList represents an array of GCP networks.",
+      "items": {
+        "$ref": "#/definitions/GCPNetwork"
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "GCPNodeSpec": {
       "description": "GCPNodeSpec gcp specific node settings",
       "type": "object",
@@ -8827,6 +8941,10 @@
         "template"
       ],
       "properties": {
+        "dynamicConfig": {
+          "type": "boolean",
+          "x-go-name": "DynamicConfig"
+        },
         "paused": {
           "type": "boolean",
           "x-go-name": "Paused"
@@ -10057,6 +10175,14 @@
         "displayTermsOfService": {
           "type": "boolean",
           "x-go-name": "DisplayTermsOfService"
+        },
+        "enableDashboard": {
+          "type": "boolean",
+          "x-go-name": "EnableDashboard"
+        },
+        "enableOIDCKubeconfig": {
+          "type": "boolean",
+          "x-go-name": "EnableOIDCKubeconfig"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"

@@ -118,7 +118,7 @@ func ConsoleProxyEndpoint(
 			log = log.With("cluster", cluster.Name)
 
 			// Ideally we would cache these to not open a port for every single request
-			portforwarder, outBuffer, err := common.GetPortForwarder(
+			portforwarder, closeChan, err := common.GetPortForwarder(
 				clusterProvider.GetSeedClusterAdminClient().CoreV1(),
 				clusterProvider.SeedAdminConfig(),
 				cluster.Status.NamespaceName,
@@ -128,32 +128,36 @@ func ConsoleProxyEndpoint(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get portforwarder for console: %v", err)
 			}
-			defer portforwarder.Close()
+			defer func() {
+				portforwarder.Close()
+				close(closeChan)
+			}()
 
 			if err = common.ForwardPort(log, portforwarder); err != nil {
 				common.WriteHTTPError(log, w, err)
 				return nil, nil
 			}
 
-			// PortForwarder does have a `GetPorts` but its plain broken in case the portforwarder picks
-			// a random port and always returns 0.
-			// TODO @alvaroaleman: Fix upstream
-			port, err := common.GetLocalPortFromPortForwardOutput(outBuffer.String())
+			ports, err := portforwarder.GetPorts()
 			if err != nil {
 				common.WriteHTTPError(log, w, fmt.Errorf("failed to get backend port: %v", err))
 				return nil, nil
 			}
-			url, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-			if err != nil {
-				common.WriteHTTPError(log, w, fmt.Errorf("failed to parse backend url: %v", err))
+			if len(ports) != 1 {
+				common.WriteHTTPError(log, w, fmt.Errorf("didn't get exactly one port but %d", len(ports)))
 				return nil, nil
+			}
+
+			proxyURL := &url.URL{
+				Scheme: "http",
+				Host:   fmt.Sprintf("127.0.0.1:%d", ports[0].Local),
 			}
 
 			// The Openshift console needs script-src: unsafe-inline and sryle-src: unsafe-inline.
 			// The header here overwrites the setting on the main router, which is more strict.
 			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-ancestors 'self'; frame-src 'self'; connect-src 'self'")
 			// Proxy the request
-			proxy := httputil.NewSingleHostReverseProxy(url)
+			proxy := httputil.NewSingleHostReverseProxy(proxyURL)
 			proxy.ServeHTTP(w, r)
 
 			return nil, nil
@@ -256,6 +260,7 @@ func consoleLogin(
 	oauthCode := redirectURL.Query().Get("code")
 	if oauthCode == "" {
 		common.WriteHTTPError(log, w, errors.New("did not get an OAuth code back from Openshift OAuth server"))
+		return
 	}
 	// We don't check this here again. If something is wrong with it, Openshift will complain
 	returnedOAuthState := redirectURL.Query().Get("state")

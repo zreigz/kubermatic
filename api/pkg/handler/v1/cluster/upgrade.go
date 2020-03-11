@@ -18,6 +18,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -51,11 +52,15 @@ func GetUpgradesEndpoint(updateManager common.UpdateManager, projectProvider pro
 
 		machineDeployments := &clusterv1alpha1.MachineDeploymentList{}
 		if err := client.List(ctx, machineDeployments, ctrlruntimeclient.InNamespace(metav1.NamespaceSystem)); err != nil {
+			// Happens during cluster creation when the CRD is not setup yet
+			if _, ok := err.(*meta.NoKindMatchError); ok {
+				return nil, nil
+			}
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		clusterType := apiv1.KubernetesClusterType
-		if _, ok := cluster.Annotations["kubermatic.io/openshift"]; ok {
+		if cluster.IsOpenshift() {
 			clusterType = apiv1.OpenShiftClusterType
 		}
 

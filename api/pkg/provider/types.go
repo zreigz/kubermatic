@@ -67,6 +67,8 @@ type ClusterGetOptions struct {
 	CheckInitStatus bool
 }
 
+// SecretKeySelectorValueFunc is used to fetch the value of a config var. Do not build your own
+// implementation, use SecretKeySelectorValueFuncFactory.
 type SecretKeySelectorValueFunc func(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error)
 
 func SecretKeySelectorValueFuncFactory(ctx context.Context, client ctrlruntimeclient.Client) SecretKeySelectorValueFunc {
@@ -501,4 +503,11 @@ type SettingsProvider interface {
 type AdminProvider interface {
 	SetAdmin(userInfo *UserInfo, email string, isAdmin bool) (*kubermaticv1.User, error)
 	GetAdmins(userInfo *UserInfo) ([]kubermaticv1.User, error)
+}
+
+// PresetProvider declares the set of methods for interacting with presets
+type PresetProvider interface {
+	GetPresets(userInfo *UserInfo) ([]kubermaticv1.Preset, error)
+	GetPreset(userInfo *UserInfo, name string) (*kubermaticv1.Preset, error)
+	SetCloudCredentials(userInfo *UserInfo, presetName string, cloud kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter) (*kubermaticv1.CloudSpec, error)
 }

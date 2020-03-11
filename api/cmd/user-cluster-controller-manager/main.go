@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -24,6 +22,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/nodecsrapprover"
 	openshiftmasternodelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/openshift-master-node-labeler"
 	openshiftseedsyncer "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/openshift-seed-syncer"
+	ownerbindingcreator "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/owner-binding-creator"
 	rbacusercluster "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/rbac"
 	usercluster "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources"
 	machinecontrolerresources "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/machine-controller"
@@ -61,7 +60,7 @@ type controllerRunOptions struct {
 	nodelabels                    string
 	seedKubeconfig                string
 	openshiftConsoleCallbackURI   string
-	log                           kubermaticlog.Options
+	ownerEmail                    string
 }
 
 func main() {
@@ -69,6 +68,9 @@ func main() {
 	klog.InitFlags(nil)
 	pprofOpts := &pprof.Opts{}
 	pprofOpts.AddFlags(flag.CommandLine)
+	logOpts := kubermaticlog.NewDefaultOptions()
+	logOpts.AddFlags(flag.CommandLine)
+
 	flag.StringVar(&runOp.metricsListenAddr, "metrics-listen-address", "127.0.0.1:8085", "The address on which the internal HTTP /metrics server is running on")
 	flag.StringVar(&runOp.healthListenAddr, "health-listen-address", "127.0.0.1:8086", "The address on which the internal HTTP /ready & /live server is running on")
 	flag.BoolVar(&runOp.openshift, "openshift", false, "Whether the managed cluster is an openshift cluster")
@@ -78,24 +80,20 @@ func main() {
 	flag.StringVar(&runOp.clusterURL, "cluster-url", "", "Cluster URL")
 	flag.IntVar(&runOp.openvpnServerPort, "openvpn-server-port", 0, "OpenVPN server port")
 	flag.StringVar(&runOp.overwriteRegistry, "overwrite-registry", "", "registry to use for all images")
-	flag.BoolVar(&runOp.log.Debug, "log-debug", false, "Enables debug logging")
-	flag.StringVar(&runOp.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.StringVar(&runOp.cloudProviderName, "cloud-provider-name", "", "Name of the cloudprovider")
 	flag.StringVar(&runOp.cloudCredentialSecretTemplate, "cloud-credential-secret-template", "", "A serialized Kubernetes secret whose Name and Data fields will be used to create a secret for the openshift cloud credentials operator.")
 	flag.StringVar(&runOp.nodelabels, "node-labels", "", "A json-encoded map of node labels. If set, those labels will be enforced on all nodes.")
 	flag.StringVar(&runOp.seedKubeconfig, "seed-kubeconfig", "", "Path to the seed kubeconfig. In-Cluster config will be used if unset")
 	flag.StringVar(&runOp.openshiftConsoleCallbackURI, "openshift-console-callback-uri", "", "The callback uri for the openshift console")
-
+	flag.StringVar(&runOp.ownerEmail, "owner-email", "", "An email address of the user who created the cluster. Used as default subject for the admin cluster role binding")
 	flag.Parse()
 
-	if err := runOp.log.Validate(); err != nil {
-		fmt.Printf("error occurred while validating zap logger options: %v\n", err)
-		os.Exit(1)
-	}
-
-	rawLog := kubermaticlog.New(runOp.log.Debug, kubermaticlog.Format(runOp.log.Format))
+	rawLog := kubermaticlog.New(logOpts.Debug, logOpts.Format)
 	log := rawLog.Sugar()
 
+	if runOp.ownerEmail == "" {
+		log.Fatal("-owner-email must be set")
+	}
 	if runOp.namespace == "" {
 		log.Fatal("-namespace must be set")
 	}
@@ -231,14 +229,16 @@ func main() {
 	}
 	log.Info("Registered user RBAC controller")
 
+	if err := nodecsrapprover.Add(mgr, 4, cfg, log); err != nil {
+		log.Fatalw("Failed to add nodecsrapprover controller", zap.Error(err))
+	}
+	log.Info("Registered nodecsrapprover controller")
+
 	if runOp.openshift {
-		if err := nodecsrapprover.Add(mgr, 4, cfg, log); err != nil {
-			log.Fatalw("Failed to add nodecsrapprover controller", zap.Error(err))
-		}
 		if err := openshiftmasternodelabeler.Add(context.Background(), kubermaticlog.Logger, mgr); err != nil {
 			log.Fatalw("Failed to add openshiftmasternodelabeler controller", zap.Error(err))
 		}
-		log.Info("Registered nodecsrapprover controller")
+		log.Info("Registered openshiftmasternodelabeler controller")
 
 		if err := openshiftseedsyncer.Add(log, mgr, seedMgr, runOp.clusterURL, runOp.namespace); err != nil {
 			log.Fatalw("Failed to register the openshiftseedsyncer", zap.Error(err))
@@ -265,6 +265,10 @@ func main() {
 		log.Fatalw("Failed to register rolecloner controller", zap.Error(err))
 	}
 	log.Info("Registered rolecloner controller")
+	if err := ownerbindingcreator.Add(ctx, log, mgr, runOp.ownerEmail); err != nil {
+		log.Fatalw("Failed to register ownerbindingcreator controller", zap.Error(err))
+	}
+	log.Info("Registered ownerbindingcreator controller")
 
 	// This group is forever waiting in a goroutine for signals to stop
 	{

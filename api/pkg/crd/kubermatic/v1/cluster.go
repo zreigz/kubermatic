@@ -31,8 +31,9 @@ const (
 )
 
 const (
-	WorkerNameLabelKey = "worker-name"
-	ProjectIDLabelKey  = "project-id"
+	WorkerNameLabelKey   = "worker-name"
+	ProjectIDLabelKey    = "project-id"
+	UpdatedByVPALabelKey = "updated-by-vpa"
 )
 
 // ProtectedClusterLabels is a set of labels that must not be set by users on clusters,
@@ -95,7 +96,7 @@ type ClusterSpec struct {
 	// Feature flags
 	// This unfortunately has to be a string map, because we use it in templating and that
 	// can not cope with string types
-	Features map[string]bool `json:"features"`
+	Features map[string]bool `json:"features,omitempty"`
 
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`

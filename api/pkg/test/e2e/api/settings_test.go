@@ -1,6 +1,6 @@
 // +build e2e
 
-package e2e
+package api
 
 import (
 	"testing"
@@ -30,6 +30,8 @@ func TestGetDefaultGlobalSettings(t *testing.T) {
 				DisplayDemoInfo:       false,
 				DisplayAPIDocs:        false,
 				DisplayTermsOfService: false,
+				EnableDashboard:       true,
+				EnableOIDCKubeconfig:  false,
 			},
 		},
 	}
@@ -37,11 +39,11 @@ func TestGetDefaultGlobalSettings(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var masterToken string
 
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}
-			apiRunner := CreateAPIRunner(masterToken, t)
+			apiRunner := createRunner(masterToken, t)
 
 			settings, err := apiRunner.GetGlobalSettings()
 			if err != nil {
