@@ -131,6 +131,14 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 				"kubermatic.io/openshift": "true",
 			}
 		}
+
+		// Enforce audit logging
+		if dc.Spec.EnforceAuditLogging {
+			partialCluster.Spec.AuditLogging = &kubermaticv1.AuditLoggingSettings{
+				Enabled: true,
+			}
+		}
+
 		// generate the name here so that it can be used in the secretName below
 		partialCluster.Name = rand.String(10)
 
@@ -388,6 +396,8 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 		newInternalCluster.Spec.Version = patchedCluster.Spec.Version
 		newInternalCluster.Spec.OIDC = patchedCluster.Spec.OIDC
 		newInternalCluster.Spec.UsePodSecurityPolicyAdmissionPlugin = patchedCluster.Spec.UsePodSecurityPolicyAdmissionPlugin
+		newInternalCluster.Spec.UsePodNodeSelectorAdmissionPlugin = patchedCluster.Spec.UsePodNodeSelectorAdmissionPlugin
+		newInternalCluster.Spec.AdmissionPlugins = patchedCluster.Spec.AdmissionPlugins
 		newInternalCluster.Spec.AuditLogging = patchedCluster.Spec.AuditLogging
 		newInternalCluster.Spec.Openshift = patchedCluster.Spec.Openshift
 
@@ -402,6 +412,13 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 		_, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, newInternalCluster.Spec.Cloud.DatacenterName)
 		if err != nil {
 			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		// Enforce audit logging
+		if dc.Spec.EnforceAuditLogging {
+			newInternalCluster.Spec.AuditLogging = &kubermaticv1.AuditLoggingSettings{
+				Enabled: true,
+			}
 		}
 
 		assertedClusterProvider, ok := clusterProvider.(*kubernetesprovider.ClusterProvider)
@@ -707,6 +724,8 @@ func convertInternalClusterToExternal(internalCluster *kubermaticv1.Cluster, fil
 			OIDC:                                internalCluster.Spec.OIDC,
 			AuditLogging:                        internalCluster.Spec.AuditLogging,
 			UsePodSecurityPolicyAdmissionPlugin: internalCluster.Spec.UsePodSecurityPolicyAdmissionPlugin,
+			UsePodNodeSelectorAdmissionPlugin:   internalCluster.Spec.UsePodNodeSelectorAdmissionPlugin,
+			AdmissionPlugins:                    internalCluster.Spec.AdmissionPlugins,
 		},
 		Status: apiv1.ClusterStatus{
 			Version: internalCluster.Spec.Version,
@@ -1208,7 +1227,7 @@ type EventsReq struct {
 	common.GetClusterReq
 
 	// in: query
-	Type string
+	Type string `json:"type,omitempty"`
 }
 
 func DecodeGetClusterEvents(c context.Context, r *http.Request) (interface{}, error) {

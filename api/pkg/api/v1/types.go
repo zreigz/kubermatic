@@ -123,6 +123,10 @@ type DatacenterSpec struct {
 	// Deprecated. Automatically migrated to the RequiredEmailDomains field.
 	RequiredEmailDomain  string   `json:"requiredEmailDomain,omitempty"`
 	RequiredEmailDomains []string `json:"requiredEmailDomains,omitempty"`
+
+	// EnforceAuditLogging enforces audit logging on every cluster within the DC,
+	// ignoring cluster-specific settings.
+	EnforceAuditLogging bool `json:"enforceAuditLogging"`
 }
 
 // DatacenterList represents a list of datacenters
@@ -634,6 +638,12 @@ type ClusterSpec struct {
 	// If active the PodSecurityPolicy admission plugin is configured at the apiserver
 	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
 
+	// If active the PodNodeSelector admission plugin is configured at the apiserver
+	UsePodNodeSelectorAdmissionPlugin bool `json:"usePodNodeSelectorAdmissionPlugin,omitempty"`
+
+	// Additional Admission Controller plugins
+	AdmissionPlugins []string `json:"admissionPlugins,omitempty"`
+
 	// AuditLogging
 	AuditLogging *kubermaticv1.AuditLoggingSettings `json:"auditLogging,omitempty"`
 
@@ -650,7 +660,9 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 		Version                             ksemver.Semver                         `json:"version"`
 		OIDC                                kubermaticv1.OIDCSettings              `json:"oidc"`
 		UsePodSecurityPolicyAdmissionPlugin bool                                   `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
+		UsePodNodeSelectorAdmissionPlugin   bool                                   `json:"usePodNodeSelectorAdmissionPlugin,omitempty"`
 		AuditLogging                        *kubermaticv1.AuditLoggingSettings     `json:"auditLogging,omitempty"`
+		AdmissionPlugins                    []string                               `json:"admissionPlugins,omitempty"`
 	}{
 		Cloud: PublicCloudSpec{
 			DatacenterName: cs.Cloud.DatacenterName,
@@ -670,7 +682,9 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 		MachineNetworks:                     cs.MachineNetworks,
 		OIDC:                                cs.OIDC,
 		UsePodSecurityPolicyAdmissionPlugin: cs.UsePodSecurityPolicyAdmissionPlugin,
+		UsePodNodeSelectorAdmissionPlugin:   cs.UsePodNodeSelectorAdmissionPlugin,
 		AuditLogging:                        cs.AuditLogging,
+		AdmissionPlugins:                    cs.AdmissionPlugins,
 	})
 
 	return ret, err
@@ -913,12 +927,20 @@ type ContainerLinuxSpec struct {
 	DisableAutoUpdate bool `json:"disableAutoUpdate"`
 }
 
+// SLESSpec contains SLES specific settings
+// swagger:model SLESSpec
+type SLESSpec struct {
+	// do a dist-upgrade on boot and reboot it required afterwards
+	DistUpgradeOnBoot bool `json:"distUpgradeOnBoot"`
+}
+
 // OperatingSystemSpec represents the collection of os specific settings. Only one must be set at a time.
 // swagger:model OperatingSystemSpec
 type OperatingSystemSpec struct {
 	Ubuntu         *UbuntuSpec         `json:"ubuntu,omitempty"`
 	ContainerLinux *ContainerLinuxSpec `json:"containerLinux,omitempty"`
 	CentOS         *CentOSSpec         `json:"centos,omitempty"`
+	SLES           *SLESSpec           `json:"sles,omitempty"`
 }
 
 // NodeVersionInfo node version information
@@ -1350,6 +1372,10 @@ type ResourceLabelMap map[ResourceType]LabelKeyList
 // GlobalSettings defines global settings
 // swagger:model GlobalSettings
 type GlobalSettings kubermaticv1.SettingSpec
+
+// AdmissionPluginList represents a list of admission plugins
+// swagger:model AdmissionPluginList
+type AdmissionPluginList []string
 
 const (
 	// NodeDeletionFinalizer indicates that the nodes still need cleanup

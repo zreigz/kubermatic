@@ -261,6 +261,41 @@
         }
       }
     },
+    "/api/v1/admission/plugins/{version}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "summary": "Returns specified addon config.",
+        "operationId": "getAdmissionPlugins",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "Version",
+            "name": "version",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AdmissionPluginList",
+            "schema": {
+              "$ref": "#/definitions/AdmissionPluginList"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dc": {
       "get": {
         "produces": [
@@ -330,22 +365,26 @@
         "parameters": [
           {
             "type": "string",
-            "name": "ClusterID",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
             "in": "query"
           },
           {
             "type": "string",
-            "name": "ProjectID",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
             "in": "query"
           },
           {
             "type": "string",
-            "name": "UserID",
+            "x-go-name": "UserID",
+            "name": "user_id",
             "in": "query"
           },
           {
             "type": "string",
-            "name": "Datacenter",
+            "x-go-name": "Datacenter",
+            "name": "datacenter",
             "in": "query"
           }
         ],
@@ -366,7 +405,7 @@
       }
     },
     "/api/v1/labels/system": {
-      "patch": {
+      "get": {
         "description": "List restricted system labels",
         "produces": [
           "application/json"
@@ -1940,7 +1979,8 @@
           },
           {
             "type": "string",
-            "name": "Type",
+            "x-go-name": "Type",
+            "name": "type",
             "in": "query"
           }
         ],
@@ -2612,7 +2652,8 @@
           },
           {
             "type": "string",
-            "name": "Type",
+            "x-go-name": "Type",
+            "name": "type",
             "in": "query"
           },
           {
@@ -3781,7 +3822,8 @@
           },
           {
             "type": "string",
-            "name": "NetworkID",
+            "x-go-name": "NetworkID",
+            "name": "network_id",
             "in": "query"
           }
         ],
@@ -6345,7 +6387,8 @@
           },
           {
             "type": "string",
-            "name": "NetworkID",
+            "x-go-name": "NetworkID",
+            "name": "network_id",
             "in": "query"
           }
         ],
@@ -6593,7 +6636,8 @@
           },
           {
             "type": "string",
-            "name": "ControlPlaneVersion",
+            "x-go-name": "ControlPlaneVersion",
+            "name": "control_plane_version",
             "in": "query"
           }
         ],
@@ -7180,6 +7224,14 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "AdmissionPluginList": {
+      "description": "AdmissionPluginList represents a list of admission plugins",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "AuditLoggingSettings": {
       "type": "object",
       "properties": {
@@ -7710,6 +7762,14 @@
       "description": "ClusterSpec defines the cluster specification",
       "type": "object",
       "properties": {
+        "admissionPlugins": {
+          "description": "Additional Admission Controller plugins",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "AdmissionPlugins"
+        },
         "auditLogging": {
           "$ref": "#/definitions/AuditLoggingSettings"
         },
@@ -7729,6 +7789,11 @@
         },
         "openshift": {
           "$ref": "#/definitions/Openshift"
+        },
+        "usePodNodeSelectorAdmissionPlugin": {
+          "description": "If active the PodNodeSelector admission plugin is configured at the apiserver",
+          "type": "boolean",
+          "x-go-name": "UsePodNodeSelectorAdmissionPlugin"
         },
         "usePodSecurityPolicyAdmissionPlugin": {
           "description": "If active the PodSecurityPolicy admission plugin is configured at the apiserver",
@@ -7898,6 +7963,11 @@
         },
         "digitalocean": {
           "$ref": "#/definitions/DigitialoceanDatacenterSpec"
+        },
+        "enforceAuditLogging": {
+          "description": "EnforceAuditLogging enforces audit logging on every cluster within the DC,\nignoring cluster-specific settings.",
+          "type": "boolean",
+          "x-go-name": "EnforceAuditLogging"
         },
         "gcp": {
           "$ref": "#/definitions/GCPDatacenterSpec"
@@ -9648,6 +9718,9 @@
         "containerLinux": {
           "$ref": "#/definitions/ContainerLinuxSpec"
         },
+        "sles": {
+          "$ref": "#/definitions/SLESSpec"
+        },
         "ubuntu": {
           "$ref": "#/definitions/UbuntuSpec"
         }
@@ -10172,6 +10245,18 @@
         "userEmail": {
           "type": "string",
           "x-go-name": "UserEmail"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "SLESSpec": {
+      "description": "SLESSpec contains SLES specific settings",
+      "type": "object",
+      "properties": {
+        "distUpgradeOnBoot": {
+          "description": "do a dist-upgrade on boot and reboot it required afterwards",
+          "type": "boolean",
+          "x-go-name": "DistUpgradeOnBoot"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"

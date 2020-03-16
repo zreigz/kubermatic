@@ -18,8 +18,14 @@ import (
 // swagger:model ClusterSpec
 type ClusterSpec struct {
 
+	// Additional Admission Controller plugins
+	AdmissionPlugins []string `json:"admissionPlugins"`
+
 	// MachineNetworks optionally specifies the parameters for IPAM.
 	MachineNetworks []*MachineNetworkingConfig `json:"machineNetworks"`
+
+	// If active the PodNodeSelector admission plugin is configured at the apiserver
+	UsePodNodeSelectorAdmissionPlugin bool `json:"usePodNodeSelectorAdmissionPlugin,omitempty"`
 
 	// If active the PodSecurityPolicy admission plugin is configured at the apiserver
 	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
