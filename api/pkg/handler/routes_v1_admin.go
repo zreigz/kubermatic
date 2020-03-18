@@ -47,6 +47,23 @@ func (r Routing) RegisterV1Admin(mux *mux.Router) {
 	mux.Methods(http.MethodPatch).
 		Path("/admin/admission/plugins/{name}").
 		Handler(r.updateAdmissionPlugin())
+
+	// Defines a set of HTTP endpoints for the seeds
+	mux.Methods(http.MethodGet).
+		Path("/admin/seeds").
+		Handler(r.listSeeds())
+
+	mux.Methods(http.MethodGet).
+		Path("/admin/seeds/{seed_name}").
+		Handler(r.getSeed())
+
+	mux.Methods(http.MethodPatch).
+		Path("/admin/seeds/{seed_name}").
+		Handler(r.updateSeed())
+
+	mux.Methods(http.MethodDelete).
+		Path("/admin/seeds/{seed_name}").
+		Handler(r.deleteSeed())
 }
 
 // swagger:route GET /api/v1/admin/settings admin getKubermaticSettings
@@ -243,6 +260,105 @@ func (r Routing) updateAdmissionPlugin() http.Handler {
 			middleware.UserSaver(r.userProvider),
 		)(admin.UpdateAdmissionPluginEndpoint(r.userInfoGetter, r.admissionPluginProvider)),
 		admin.DecodeUpdateAdmissionPluginReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/admin/seeds admin listSeeds
+//
+//     Returns all seeds from the CRDs.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: []Seed
+//       401: empty
+//       403: empty
+func (r Routing) listSeeds() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(admin.ListSeedEndpoint(r.userInfoGetter, r.seedsGetter)),
+		decodeEmptyReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/admin/seeds/{seed_name} admin getSeed
+//
+//     Returns the seed object.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: Seed
+//       401: empty
+//       403: empty
+func (r Routing) getSeed() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(admin.GetSeedEndpoint(r.userInfoGetter, r.seedsGetter)),
+		admin.DecodeSeedReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route PATCH /api/v1/admin/seeds/{seed_name} admin updateSeed
+//
+//     Updates the seed.
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: Seed
+//       401: empty
+//       403: empty
+func (r Routing) updateSeed() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(admin.UpdateSeedEndpoint(r.userInfoGetter, r.seedsGetter, r.seedsClientGetter)),
+		admin.DecodeUpdateSeedReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route DELETE /api/v1/admin/seeds/{seed_name} admin deleteSeed
+//
+//     Deletes the seed CRD object from the Kubermatic.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: empty
+//       401: empty
+//       403: empty
+func (r Routing) deleteSeed() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(admin.DeleteSeedEndpoint(r.userInfoGetter, r.seedsGetter, r.seedsClientGetter)),
+		admin.DecodeSeedReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
