@@ -1,3 +1,13 @@
+### [v2.13.1]()
+
+
+- Fixed swagger and API client for ssh key creation. [#5069](https://github.com/kubermatic/kubermatic/issues/5069) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.10, v1.16.7, v1.17.3 [#5102](https://github.com/kubermatic/kubermatic/issues/5102) ([kdomanski](https://github.com/kdomanski))
+- AddonConfig's shortDescription field is now used in the accessible addons overview. [#2050](https://github.com/kubermatic/dashboard-v2/issues/2050) ([maciaszczykm](https://github.com/maciaszczykm))
+
+
+
+
 ### [v2.13.0]()
 
 
@@ -108,6 +118,18 @@ Supported Kubernetes versions:
 - Added support for dynamic presets [#4903](https://github.com/kubermatic/kubermatic/issues/4903) ([zreigz](https://github.com/zreigz))
 - Presets can now be filtered by datacenter [#4991](https://github.com/kubermatic/kubermatic/issues/4991) ([zreigz](https://github.com/zreigz))
 - Revoking the viewer token is possible via UI now. [#1708](https://github.com/kubermatic/dashboard-v2/issues/1708) ([kgroschoff](https://github.com/kgroschoff))
+
+
+
+
+### [v2.12.6]()
+
+
+**Misc:**
+
+- System labels can no longer be removed by the user. [#4983](https://github.com/kubermatic/kubermatic/issues/4983) ([zreigz](https://github.com/zreigz))
+- End-of-Life Kubernetes v1.14 is no longer supported. [#4988](https://github.com/kubermatic/kubermatic/issues/4988) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.7, v1.15.9, v1.16.4, v1.16.6 [#4995](https://github.com/kubermatic/kubermatic/issues/4995) ([kdomanski](https://github.com/kdomanski))
 
 
 
@@ -289,6 +311,15 @@ Supported Kubernetes versions:
 - Redesigned extended options in wizard [#1609](https://github.com/kubermatic/dashboard-v2/issues/1609) ([kgroschoff](https://github.com/kgroschoff))
 - Various security improvements in authentication
 - Various other visual improvements
+
+
+
+
+### [v2.11.8]()
+
+
+- End-of-Life Kubernetes v1.14 is no longer supported. [#4989](https://github.com/kubermatic/kubermatic/issues/4989) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.7, v1.15.9 [#4995](https://github.com/kubermatic/kubermatic/issues/4995) ([kdomanski](https://github.com/kdomanski))
 
 
 

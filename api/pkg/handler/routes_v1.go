@@ -133,6 +133,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Handler(r.listAlibabaInstanceTypes())
 
 	mux.Methods(http.MethodGet).
+		Path("/providers/alibaba/zones").
+		Handler(r.listAlibabaZones())
+
+	mux.Methods(http.MethodGet).
 		Path("/providers/{provider_name}/presets/credentials").
 		Handler(r.listCredentials())
 
@@ -474,6 +478,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/alibaba/instancetypes").
 		Handler(r.listAlibabaInstanceTypesNoCredentials())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/alibaba/zones").
+		Handler(r.listAlibabaZonesNoCredentials())
 
 	//
 	// Defines a set of openshift-specific endpoints
@@ -1132,7 +1140,29 @@ func (r Routing) listAlibabaInstanceTypes() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AlibabaInstanceTypesEndpoint(r.presetsProvider, r.userInfoGetter)),
-		provider.DecodeAlibabaInstanceTypesReq,
+		provider.DecodeAlibabaReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/providers/alibaba/zones alibaba listAlibabaZones
+//
+// Lists available Alibaba zones.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: AlibabaZoneList
+func (r Routing) listAlibabaZones() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(provider.AlibabaZonesEndpoint(r.presetsProvider, r.userInfoGetter)),
+		provider.DecodeAlibabaReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
@@ -1320,7 +1350,7 @@ func (r Routing) updateProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(project.UpdateEndpoint(r.projectProvider, r.projectMemberProvider, r.userProvider, r.userInfoGetter)),
+		)(project.UpdateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.projectMemberProvider, r.userProvider, r.userInfoGetter)),
 		project.DecodeUpdateRq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1399,7 +1429,7 @@ func (r Routing) listClusters() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.ListEndpoint(r.projectProvider, r.userInfoGetter)),
+		)(cluster.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeListReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1423,7 +1453,7 @@ func (r Routing) listClustersForProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(cluster.ListAllEndpoint(r.projectProvider, r.seedsGetter, r.clusterProviderGetter, r.userInfoGetter)),
+		)(cluster.ListAllEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.clusterProviderGetter, r.userInfoGetter)),
 		common.DecodeGetProject,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1449,7 +1479,7 @@ func (r Routing) getCluster() http.Handler {
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.GetEndpoint(r.projectProvider, r.userInfoGetter)),
+		)(cluster.GetEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1580,7 +1610,8 @@ func (r Routing) deleteCluster() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.DeleteEndpoint(r.sshKeyProvider, r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.DeleteEndpoint(r.sshKeyProvider, r.privilegedSSHKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeDeleteReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1662,7 +1693,8 @@ func (r Routing) listSSHKeysAssignedToCluster() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.ListSSHKeysEndpoint(r.sshKeyProvider, r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.ListSSHKeysEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeListSSHKeysReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2640,8 +2672,31 @@ func (r Routing) listAlibabaInstanceTypesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AlibabaInstanceTypesWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
-		common.DecodeGetClusterReq,
+		)(provider.AlibabaInstanceTypesWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+		provider.DecodeAlibabaNoCredentialReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/alibaba/zones alibaba listAlibabaZonesNoCredentials
+//
+// Lists available Alibaba Instance Types
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: AlibabaZoneList
+func (r Routing) listAlibabaZonesNoCredentials() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AlibabaZonesWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+		provider.DecodeAlibabaNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
@@ -3063,7 +3118,7 @@ func (r Routing) getClusterMetrics() http.Handler {
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.GetMetricsEndpoint(r.projectProvider, r.userInfoGetter)),
+		)(cluster.GetMetricsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3118,6 +3173,7 @@ func (r Routing) openshiftConsoleLogin() http.Handler {
 		r.log,
 		middleware.TokenExtractor(r.tokenExtractors),
 		r.projectProvider,
+		r.privilegedProjectProvider,
 		r.userInfoGetter,
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
@@ -3142,6 +3198,7 @@ func (r Routing) openshiftConsoleProxy() http.Handler {
 		r.log,
 		middleware.TokenExtractor(r.tokenExtractors),
 		r.projectProvider,
+		r.privilegedProjectProvider,
 		r.userInfoGetter,
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
@@ -3166,6 +3223,7 @@ func (r Routing) kubernetesDashboardProxy() http.Handler {
 		r.log,
 		middleware.TokenExtractor(r.tokenExtractors),
 		r.projectProvider,
+		r.privilegedProjectProvider,
 		r.userInfoGetter,
 		r.settingsProvider,
 		endpoint.Chain(

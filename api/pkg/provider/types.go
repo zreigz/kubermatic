@@ -185,6 +185,16 @@ type PrivilegedClusterProvider interface {
 	//
 	// Note that the admin privileges are used to get cluster
 	GetUnsecured(project *kubermaticv1.Project, clusterName string) (*kubermaticv1.Cluster, error)
+
+	// UpdateUnsecured updates a cluster.
+	//
+	// Note that the admin privileges are used to update cluster
+	UpdateUnsecured(project *kubermaticv1.Project, cluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
+
+	// DeleteUnsecured deletes a cluster.
+	//
+	// Note that the admin privileges are used to delete cluster
+	DeleteUnsecured(cluster *kubermaticv1.Cluster) error
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -218,6 +228,14 @@ type SSHKeyProvider interface {
 	Update(userInfo *UserInfo, newKey *kubermaticv1.UserSSHKey) (*kubermaticv1.UserSSHKey, error)
 }
 
+// SSHKeyProvider declares the set of methods for interacting with ssh keys and uses privileged account for it
+type PrivilegedSSHKeyProvider interface {
+
+	// UpdateUnsecured update a specific ssh key and returns the updated ssh key
+	// This function is unsafe in a sense that it uses privileged account to update the ssh key
+	UpdateUnsecured(sshKey *kubermaticv1.UserSSHKey) (*kubermaticv1.UserSSHKey, error)
+}
+
 // UserProvider declares the set of methods for interacting with kubermatic users
 type UserProvider interface {
 	UserByEmail(email string) (*kubermaticv1.User, error)
@@ -235,6 +253,10 @@ type PrivilegedProjectProvider interface {
 	// DeleteUnsecured deletes any given project
 	// This function is unsafe in a sense that it uses privileged account to delete project with the given name
 	DeleteUnsecured(projectInternalName string) error
+
+	// UpdateUnsecured update an existing project and returns it
+	// This function is unsafe in a sense that it uses privileged account to update project
+	UpdateUnsecured(project *kubermaticv1.Project) (*kubermaticv1.Project, error)
 }
 
 // ProjectProvider declares the set of method for interacting with kubermatic's project
