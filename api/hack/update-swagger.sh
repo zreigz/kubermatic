@@ -10,4 +10,4 @@ SWAGGER_FILE="swagger.json"
 cd ${API_DIR}/vendor/github.com/go-swagger/go-swagger/cmd/swagger
 go install
 cd ${API_DIR}/cmd/kubermatic-api/
-swagger generate spec --scan-models -o ${SWAGGER_FILE}
+~/go/bin/swagger generate spec --scan-models -o ${SWAGGER_FILE}

@@ -94,6 +94,7 @@ func TestNewClusterSpec_MarshalJSON(t *testing.T) {
 							Password: valueToBeFiltered,
 						},
 						VMNetName: "vmNetName",
+						Datastore: "testDataStore",
 					},
 				},
 			},
