@@ -9,12 +9,17 @@ import (
 
 // Returns a matrix of (version x operating system)
 func getVSphereScenarios(scenarioOptions []string, versions []*semver.Semver) []testScenario {
-	var customFolder bool
+	var (
+		customFolder     bool
+		datastoreCluster bool
+	)
 
 	for _, opt := range scenarioOptions {
 		switch opt {
 		case "custom-folder":
 			customFolder = true
+		case "datastore-cluster":
+			datastoreCluster = true
 		}
 	}
 
@@ -26,7 +31,8 @@ func getVSphereScenarios(scenarioOptions []string, versions []*semver.Semver) []
 			nodeOsSpec: apimodels.OperatingSystemSpec{
 				Ubuntu: &apimodels.UbuntuSpec{},
 			},
-			customFolder: customFolder,
+			customFolder:     customFolder,
+			datastoreCluster: datastoreCluster,
 		})
 		// CoreOS
 		scenarios = append(scenarios, &vSphereScenario{
@@ -37,7 +43,8 @@ func getVSphereScenarios(scenarioOptions []string, versions []*semver.Semver) []
 					DisableAutoUpdate: true,
 				},
 			},
-			customFolder: customFolder,
+			customFolder:     customFolder,
+			datastoreCluster: datastoreCluster,
 		})
 		// CentOS
 		scenarios = append(scenarios, &vSphereScenario{
@@ -45,7 +52,8 @@ func getVSphereScenarios(scenarioOptions []string, versions []*semver.Semver) []
 			nodeOsSpec: apimodels.OperatingSystemSpec{
 				Centos: &apimodels.CentOSSpec{},
 			},
-			customFolder: customFolder,
+			customFolder:     customFolder,
+			datastoreCluster: datastoreCluster,
 		})
 	}
 
@@ -53,9 +61,10 @@ func getVSphereScenarios(scenarioOptions []string, versions []*semver.Semver) []
 }
 
 type vSphereScenario struct {
-	version      *semver.Semver
-	nodeOsSpec   apimodels.OperatingSystemSpec
-	customFolder bool
+	version          *semver.Semver
+	nodeOsSpec       apimodels.OperatingSystemSpec
+	customFolder     bool
+	datastoreCluster bool
 }
 
 func (s *vSphereScenario) Name() string {
@@ -70,9 +79,9 @@ func (s *vSphereScenario) Cluster(secrets secrets) *apimodels.CreateClusterSpec 
 				Cloud: &apimodels.CloudSpec{
 					DatacenterName: "vsphere-ger",
 					Vsphere: &apimodels.VSphereCloudSpec{
-						Username:         secrets.VSphere.Username,
-						Password:         secrets.VSphere.Password,
-						DatastoreCluster: secrets.VSphere.DatastoreCluster,
+						Username:  secrets.VSphere.Username,
+						Password:  secrets.VSphere.Password,
+						Datastore: "exsi-nas",
 					},
 				},
 				Version: s.version.String(),
@@ -82,6 +91,11 @@ func (s *vSphereScenario) Cluster(secrets secrets) *apimodels.CreateClusterSpec 
 
 	if s.customFolder {
 		spec.Cluster.Spec.Cloud.Vsphere.Folder = "/dc-1/vm/e2e-tests/custom_folder_test"
+	}
+
+	if s.datastoreCluster {
+		spec.Cluster.Spec.Cloud.Vsphere.DatastoreCluster = "dsc-1"
+		spec.Cluster.Spec.Cloud.Vsphere.Datastore = ""
 	}
 
 	return spec
