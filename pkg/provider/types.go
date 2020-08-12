@@ -720,6 +720,8 @@ type ExternalClusterProvider interface {
 
 	Delete(userInfo *UserInfo, cluster *kubermaticv1.ExternalCluster) error
 
+	List(project *kubermaticv1.Project) (*kubermaticv1.ExternalClusterList, error)
+
 	GenerateClient(cfg *clientcmdapi.Config) (*ctrlruntimeclient.Client, error)
 
 	CreateOrUpdateKubeconfigSecretForCluster(ctx context.Context, cluster *kubermaticv1.ExternalCluster, kubeconfig *clientcmdapi.Config) error

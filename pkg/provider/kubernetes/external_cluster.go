@@ -17,10 +17,12 @@ limitations under the License.
 package kubernetes
 
 import (
+	"errors"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/labels"
 
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 	kubermaticapiv1 "k8c.io/kubermatic/v2/pkg/crd/kubermatic/v1"
@@ -134,6 +136,22 @@ func (p *ExternalClusterProvider) GetUnsecured(clusterName string) (*kubermatica
 	}
 
 	return cluster, nil
+}
+
+// List gets all external clusters that belong to the given project
+func (p *ExternalClusterProvider) List(project *kubermaticapiv1.Project) (*kubermaticapiv1.ExternalClusterList, error) {
+	if project == nil {
+		return nil, errors.New("project is missing but required")
+	}
+
+	projectClusters := &kubermaticapiv1.ExternalClusterList{}
+	selector := labels.SelectorFromSet(map[string]string{kubermaticapiv1.ProjectIDLabelKey: project.Name})
+	listOpts := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
+	if err := p.clientPrivileged.List(context.Background(), projectClusters, listOpts); err != nil {
+		return nil, fmt.Errorf("failed to list clusters: %v", err)
+	}
+
+	return projectClusters, nil
 }
 
 func addProjectReference(project *kubermaticapiv1.Project, cluster *kubermaticapiv1.ExternalCluster) {
